@@ -511,22 +511,30 @@ export default function TabEditor() {
       }
     };
 
-    const dispatch = (s: Song, a: NoteAction, when: number) => {
+    const dispatch = (s: Song, a: NoteAction, when: number, chord?: { stroke: "d" | "u" }) => {
       const sampler = samplerRef.current;
       const useGuitar = (s.sound === "guitar" || s.sound === "guitar-di") && sampler?.loaded;
       if (useGuitar && sampler) {
         const sd = slotDurOf(s, pos.m);
         if (legacyRef.current) { dispatchLegacy(sampler, a, when, sd); return; }
-        const t = when + (Math.random() - 0.5) * 0.003; // ±1.5ms, centered
+        // micro-timing (Phase 0 player rules): metal is metronomic, so feel is
+        // systematic, not noisy. Random jitter is small and TIGHTER on low
+        // strings (timing errors are most audible in the bass register); an
+        // open pick sits ~2.5ms earlier than a chug because a softer attack is
+        // perceived later (perceptual-center alignment). Chord notes get their
+        // spread from the strum instead of jitter.
+        const lowness = Math.max(0, Math.min(1, (64 - a.midi) / 24));
+        const jit = chord ? 0 : (Math.random() - 0.5) * (0.002 + 0.003 * (1 - lowness));
+        const t = when + jit + (a.kind === "pick" ? -0.0025 : 0);
         switch (a.kind) {
           case "pick":
-            sampler.pickNote(a.si, a.midi, t, { velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato });
+            sampler.pickNote(a.si, a.midi, t, { velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
             break;
           case "palm":
-            sampler.pickNote(a.si, a.midi, t, { articulation: "palm", velocity: a.velocity, gap: a.gap });
+            sampler.pickNote(a.si, a.midi, t, { articulation: "palm", velocity: a.velocity, gap: a.gap, stroke: chord?.stroke });
             break;
           case "dead":
-            sampler.pickNote(a.si, a.midi, t, { articulation: "dead", velocity: a.velocity });
+            sampler.pickNote(a.si, a.midi, t, { articulation: "dead", velocity: a.velocity, stroke: chord?.stroke });
             break;
           case "repick":
             // overlapping stroke — the ringing body continues underneath
@@ -578,7 +586,24 @@ export default function TabEditor() {
       while (!pos.done && nextTime < ctx.currentTime + LOOKAHEAD) {
         if (pos.m >= s.measures.length) pos = { ...pos, m: startBar, c: 0 };
         if (pos.c >= s.measures[pos.m].cols.length) pos = { ...pos, c: 0 };
-        for (const a of columnActions(s, pos.m, pos.c)) dispatch(s, a, nextTime);
+        const acts = columnActions(s, pos.m, pos.c);
+        const smp = samplerRef.current;
+        const strumming = (s.sound === "guitar" || s.sound === "guitar-di") && smp?.loaded && !legacyRef.current
+          ? acts.filter((a) => a.kind === "pick" || a.kind === "palm" || a.kind === "dead")
+          : [];
+        if (smp && strumming.length >= 2) {
+          // a chord is ONE stroke: pick the direction once, then rake across
+          // the strings — down = low string first, up = high string first —
+          // spread by 2.2% of the strum period per string (tightens with tempo)
+          const stroke = smp.beginStroke();
+          const step = Math.min(0.006, Math.max(0.001, 0.022 * slotDurOf(s, pos.m)));
+          const order = [...strumming].sort((x, y) => (stroke === "d" ? y.si - x.si : x.si - y.si));
+          order.forEach((a, i) => dispatch(s, a, nextTime + i * step, { stroke }));
+          const inStrum = new Set(strumming);
+          for (const a of acts) if (!inStrum.has(a)) dispatch(s, a, nextTime);
+        } else {
+          for (const a of acts) dispatch(s, a, nextTime);
+        }
         uiQueue.push({ t: nextTime, m: pos.m, c: pos.c });
         nextTime += slotDurOf(s, pos.m);
         pos = advancePos(s, pos, startBar, endBar, loopRef.current);

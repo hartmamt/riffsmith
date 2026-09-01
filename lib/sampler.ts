@@ -75,6 +75,11 @@ export class GuitarSampler {
   private pmCustomVels = new Map<number, number[]>(); // root → sorted vels
   private pmCustomRrs = new Map<string, number>();    // root_vel_stroke → rr count
   private repickTails = new Map<number, StringVoice[]>(); // overlapping tremolo strokes
+  // performance state (Phase 0 "player rules"): the pick's position drifts a
+  // little from stroke to stroke, and the double-tracked take drifts in pitch
+  // like a second tape machine (ADT) instead of sitting at a fixed offset
+  private posWalk = 0;      // pick-position random walk, fraction of string length
+  private twinDrift = 0;    // cents, slow random walk for the L/R twin take
 
   // one picking hand: direction alternates across the whole performance
   resetPickDirection() {
@@ -89,20 +94,65 @@ export class GuitarSampler {
     return s;
   }
 
+  /** One stroke for a whole chord: the scheduler calls this once per column
+   *  and passes the result to every string's pickNote, so a three-string
+   *  power chord advances the picking hand once, not three times. */
+  beginStroke(): "d" | "u" {
+    const s = this.nextStroke(true);
+    this.pickStroke = s;
+    return s;
+  }
+
   // stroke character beyond gain: downstrokes fuller low mids, upstrokes
-  // thinner/brighter attack (used when the bank has no real stroke samples)
-  private strokeColor(stroke: "d" | "u"): BiquadFilterNode {
+  // thinner/brighter attack (used when the bank has no real stroke samples).
+  // `tiltDb` is a per-stroke random tilt so repeated strokes never share a
+  // spectrum exactly (anti-repetition)
+  private strokeColor(stroke: "d" | "u", tiltDb = 0): BiquadFilterNode {
     const f = this.ctx.createBiquadFilter();
     if (stroke === "d") {
       f.type = "lowshelf";
       f.frequency.value = 280;
-      f.gain.value = 2.5;
+      f.gain.value = 2.5 + tiltDb;
     } else {
       f.type = "highshelf";
       f.frequency.value = 1600;
-      f.gain.value = 3.5;
+      f.gain.value = 3.5 + tiltDb;
     }
     return f;
+  }
+
+  // pick-position comb: the attack of a real pick carries notches at multiples
+  // of 1/(beta*T). Our DI samples were picked at ONE position, so this applies
+  // the *difference* between that position and where this stroke lands
+  // (chugs sit closer to the bridge; every stroke wanders a little). Attack
+  // only: the comb fades out over ~70ms so the sustain stays the sample's.
+  private pickPositionComb(input: AudioNode, midi: number, art: Articulation, when: number): AudioNode {
+    const ctx = this.ctx;
+    this.posWalk = Math.max(-0.04, Math.min(0.04, this.posWalk + (Math.random() - 0.5) * 0.02));
+    const period = 1 / (440 * Math.pow(2, (midi - 69) / 12));
+    const beta = (art === "palm" ? 0.05 : 0.02) + Math.abs(this.posWalk);
+    const d = Math.min(0.009, Math.max(0.0002, beta * period));
+    const g0 = art === "palm" ? 0.45 : 0.35;
+    const delay = ctx.createDelay(0.01);
+    delay.delayTime.value = d;
+    const fb = ctx.createGain();
+    fb.gain.setValueAtTime(-g0, when);
+    fb.gain.linearRampToValueAtTime(0, when + 0.07);
+    const sum = ctx.createGain();
+    input.connect(sum);
+    input.connect(delay).connect(fb).connect(sum);
+    return sum;
+  }
+
+  // tension modulation: a hard pick stretches the string, so the note starts
+  // sharp and settles as the energy decays. Largest on loose low strings —
+  // Drop B is exactly that case. Returns the onset offset in cents.
+  private tensionGlideCents(midi: number, velocity: number, art: Articulation): number {
+    if (art === "dead") return 0;
+    const lowness = Math.max(0, Math.min(1, (64 - midi) / 24)); // B1..E4 → 1..0
+    // open DI samples already carry some natural onset sharpness, so the
+    // synthetic glide is smaller there than on the (flatwound, darker) chugs
+    return (art === "open" ? 0.6 : 1) * (4 + 20 * lowness) * Math.max(0, Math.min(1, velocity));
   }
 
   constructor(ctx: AudioContext) {
@@ -432,17 +482,17 @@ export class GuitarSampler {
     } catch {}
   }
 
-  private stopVoice(si: number, when: number, fast = true) {
+  private stopVoice(si: number, when: number, fast = true, fadeS?: number) {
     // a new articulation on the string chokes the sustaining voice AND the
     // tremolo tail pool
     const tails = this.repickTails.get(si);
     if (tails) {
-      for (const t of tails) this.fadeVoice(t, when, 0.02);
+      for (const t of tails) this.fadeVoice(t, when, Math.min(0.02, fadeS ?? 0.02));
       this.repickTails.delete(si);
     }
     const v = this.voices.get(si);
     if (!v) return;
-    this.fadeVoice(v, when, fast ? 0.025 : 0.08);
+    this.fadeVoice(v, when, fadeS ?? (fast ? 0.025 : 0.08));
     this.voices.delete(si);
   }
 
@@ -542,16 +592,23 @@ export class GuitarSampler {
       glideDur?: number;
       gap?: number;           // time to the next hit on this string (PM decay)
       isTwin?: boolean;       // internal: double-track satellite voice
+      stroke?: "d" | "u";     // chord: stroke already chosen by beginStroke()
     } = {}
   ) {
     if (!this.ampIn) return;
     const ctx = this.ctx;
     const art = opts.articulation ?? "open";
     const velocity = opts.velocity ?? 1;
-    if (!opts.isTwin) this.stopVoice(si, when);
+    if (!opts.isTwin) {
+      // the hand lands before the pick: a palm clamps the ringing tail ~4ms
+      // early and hard (measured palm pressure peaks just before the pick);
+      // a plain re-pick rests the pick on the string ~2ms early
+      const early = art === "palm" ? 0.004 : 0.002;
+      this.stopVoice(si, Math.max(ctx.currentTime, when - early), true, art === "palm" ? 0.005 : 0.015);
+    }
 
     // determine stroke BEFORE buffer selection so stroke-tagged banks apply
-    const stroke = opts.isTwin ? (this.pickStroke ?? "d") : this.nextStroke(true);
+    const stroke = opts.stroke ?? (opts.isTwin ? (this.pickStroke ?? "d") : this.nextStroke(true));
     this.pickStroke = stroke;
 
     let buffer: AudioBuffer | undefined;
@@ -569,8 +626,12 @@ export class GuitarSampler {
     }
     if (!buffer) return;
 
+    if (opts.isTwin) {
+      // ADT-style slow drift: the second take wanders a few cents over a phrase
+      this.twinDrift = Math.max(-4, Math.min(4, this.twinDrift + (Math.random() - 0.5) * 1.2));
+    }
     const shiftCents = (midi - sampleMidi) * 100
-      + (opts.isTwin ? (Math.random() * 3 + 1) * (Math.random() < 0.5 ? -1 : 1) : 0)
+      + (opts.isTwin ? this.twinDrift + (Math.random() - 0.5) * 2 : 0)
       // palm chugs: ±4 cents of humanization decorrelates near-identical
       // round-robin takes without audible pitch drift
       + (art === "palm" ? (Math.random() - 0.5) * 8 : 0);
@@ -580,7 +641,12 @@ export class GuitarSampler {
       src.detune.setValueAtTime((opts.glideFromMidi - sampleMidi) * 100, when);
       src.detune.linearRampToValueAtTime(shiftCents, when + opts.glideDur);
     } else if (art !== "dead") {
-      src.detune.value = shiftCents;
+      // tension glide: start sharp, settle onto the pitch as the string's
+      // energy decays (≈180ms open, ≈120ms palm). Later legato/bend automation
+      // overrides this with an explicit value, so nothing accumulates.
+      const glide = opts.pickless ? 0 : this.tensionGlideCents(midi, velocity, art);
+      src.detune.setValueAtTime(shiftCents + glide, when);
+      if (glide > 0) src.detune.setTargetAtTime(shiftCents, when, art === "palm" ? 0.04 : 0.06);
     }
 
     const strokeGain = stroke === "d" ? 1 : 0.93;
@@ -594,19 +660,42 @@ export class GuitarSampler {
 
     const env = ctx.createGain();
     let out: AudioNode = env;
-    if (art === "palm" && this.muteStrength > 0.5) {
-      // optional consistency damping only when the user tightens the mute —
-      // a gentle high shelf, NOT a hard low-pass; at ≤0.5 the DI is raw
-      const shelf = ctx.createBiquadFilter();
-      shelf.type = "highshelf";
-      shelf.frequency.value = 3000;
-      shelf.gain.value = -14 * (this.muteStrength - 0.5) * 2;
-      env.connect(shelf);
-      out = shelf;
+    if (art === "palm") {
+      // palm-mute pressure TRAJECTORY (Biral et al. 2014): the palm eases off
+      // at the pick so the transient is bright, then re-clamps over 50–140ms.
+      // Grip sets how far and how fast it closes; a harder pick keeps a
+      // little more top. This replaces the old static high shelf.
+      const m = this.muteStrength;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.Q.value = 0.6;
+      // the built-in chug source is dark (flatwound Bass VI: almost nothing
+      // above 1 kHz), so a tight grip has to close well into the 400–1k band
+      // to be audible; roundwound banks (GTX / custom) show the full sweep
+      const endHz = 6000 * Math.pow(0.12, m) + 300 * velocity; // 0 → 6 kHz · 0.5 → 2.1 kHz · 1 → 0.7 kHz
+      const closeS = 0.14 - 0.09 * m;
+      tone.frequency.setValueAtTime(12000, when);
+      tone.frequency.setValueAtTime(12000, when + 0.008);
+      tone.frequency.exponentialRampToValueAtTime(endHz, when + 0.008 + closeS);
+      env.connect(tone);
+      out = tone;
+    } else if (art === "open") {
+      // dynamic-level lowpass (Jaffe & Smith): softer picks are darker
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.Q.value = 0.5;
+      // accents live in 0.72–1.0, so map that band: 0.72 → ~3.5 kHz, 1.0 → ~10.8 kHz
+      const v = Math.max(0, Math.min(1, (velocity - 0.5) / 0.5));
+      tone.frequency.value = 1800 + 9000 * v * v;
+      env.connect(tone);
+      out = tone;
+    }
+    if (art !== "dead" && !opts.pickless && !opts.glideDur) {
+      out = this.pickPositionComb(out, midi, art, when);
     }
     if (art !== "dead") {
       // spectral stroke character (real stroke samples add to this)
-      const color = this.strokeColor(stroke);
+      const color = this.strokeColor(stroke, (Math.random() - 0.5) * 1.2);
       out.connect(color);
       out = color;
     }
@@ -651,9 +740,11 @@ export class GuitarSampler {
       this.voices.set(si, v);
       if (opts.vibrato && art === "open") this.attachVibrato(v, when + (opts.glideDur ?? 0.1));
       if (doubled) {
-        // independent second take: own RR, 2-6ms late, ±1-4 cents (in shiftCents)
+        // independent second take: own RR, own pick position, 2-6ms late,
+        // its own velocity and a slow pitch drift (in shiftCents)
         this.pickNote(si, midi, when + 0.002 + Math.random() * 0.004, {
           ...opts, isTwin: true,
+          velocity: Math.max(0.5, Math.min(1, velocity + (Math.random() - 0.5) * 0.08)),
         });
       }
     }
@@ -696,12 +787,18 @@ export class GuitarSampler {
 
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    if (art !== "dead") src.detune.value = (midi - sampleMidi) * 100;
+    if (art !== "dead") {
+      // anti-repetition: ±3 cents at the onset only, settling within ~40ms
+      const base = (midi - sampleMidi) * 100;
+      src.detune.setValueAtTime(base + (Math.random() - 0.5) * 6, when);
+      src.detune.setTargetAtTime(base, when, 0.015);
+    }
 
     const env = ctx.createGain();
     const strokeGain = stroke === "d" ? 1 : 0.93;
-    // 0.82 headroom: strokes sum with the ringing body without buildup
-    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82;
+    // 0.82 headroom: strokes sum with the ringing body without buildup;
+    // ±0.3dB per stroke so no two strokes are identical
+    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82 * Math.pow(10, (Math.random() - 0.5) * 0.06);
     const bodyEnd = when + 0.055;
     const relEnd = bodyEnd + 0.08;
     env.gain.setValueAtTime(level, when); // instant attack, transient intact
@@ -710,7 +807,7 @@ export class GuitarSampler {
 
     let out: AudioNode = env;
     if (art !== "dead") {
-      const color = this.strokeColor(stroke);
+      const color = this.strokeColor(stroke, (Math.random() - 0.5) * 1.6);
       out.connect(color);
       out = color;
     }
