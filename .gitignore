@@ -48,3 +48,6 @@ design/*.html
 # third-party song transcription — not for public distribution
 lib/blindedByFearDemo.ts
 lib/blindedByFearDemo.test.ts
+
+# bundled demo NAM captures (site-only, not redistributable)
+public/nam/models/

@@ -37,11 +37,12 @@ The shim calls the exact same tool functions the native registration exposes.
 
 ## Hearing the amp
 
-The app ships with a sampled guitar and a built-in amp. For the real
-Neural Amp Modeler path: in the **rig** panel (right side), set sound to
-"guitar + amp", click **load .nam model**, and pick any `.nam` capture
-(e.g. from tone3000.com — we can't bundle one for licensing reasons). It runs
-NAM inference in an AudioWorklet in the browser. Every model you load is kept in a
+The live site opens with a real Neural Amp Modeler capture already loaded
+(a 5150 full-rig capture by jpisoutoftune on TONE3000, credited in the rig panel;
+demo use only, so it is not in the repo). Press play and you are hearing NAM
+inference in an AudioWorklet in the browser. To try your own: in the **rig**
+panel (right side) pick **load .nam file…** in the model dropdown and choose any
+`.nam` capture (tone3000.com has thousands). Every model you load is kept in a
 library (persists across reloads), and an agent can switch between them:
 "switch the amp to the 5150 Red capture" → `set_rig { nam_model }`, or `none` for the built-in amp.
 

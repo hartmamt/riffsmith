@@ -15,6 +15,18 @@ import { makeChugAuditionSong, makeStarterSong, makeTechniqueTestSong, makeTremo
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
 const STORE_KEY = "guitarscrobble.songs.v1";
+
+type BundledNam = { name: string; url: string; credit?: string; creditUrl?: string };
+let bundledNamCache: Promise<BundledNam[]> | null = null;
+function fetchBundledNam(): Promise<BundledNam[]> {
+  if (!bundledNamCache) {
+    bundledNamCache = fetch("/nam/models/manifest.json")
+      .then((r) => (r.ok ? r.json() : { models: [] }))
+      .then((j) => (Array.isArray(j?.models) ? (j.models as BundledNam[]) : []))
+      .catch(() => []);
+  }
+  return bundledNamCache;
+}
 const TECHNIQUES: [string, string][] = [
   ["b", "bend note up"], ["r", "release bend"],
   ["x", "dead chug"], ["~", "vibrato (holds)"],
@@ -118,6 +130,9 @@ export default function TabEditor() {
   const legacyRef = useRef(false);
   const [namStatus, setNamStatus] = useState<string | null>(null); // loaded model name or error
   const [namLibrary, setNamLibrary] = useState<string[]>([]); // every .nam the user has loaded (IDB)
+  // captures shipped with the site (public/nam/models/manifest.json — optional, gitignored)
+  const [bundledNam, setBundledNam] = useState<BundledNam[]>([]);
+  useEffect(() => { fetchBundledNam().then(setBundledNam); }, []);
   useEffect(() => {
     kvGet<{ name: string; json: string }[]>("namLibrary")
       .then((lib) => { if (lib?.length) setNamLibrary(lib.map((m) => m.name)); })
@@ -204,6 +219,18 @@ export default function TabEditor() {
               const cab = localStorage.getItem("gs.cabOn") === "1";
               setCabOn(cab);
               s.setCabBypass(!cab);
+            }
+          } else if (localStorage.getItem("gs.namChoice") !== "1") {
+            // first run: ship the demo capture as the default amp until the user picks something
+            const first = (await fetchBundledNam())[0];
+            if (first) {
+              const text = await fetch(first.url).then((r) => r.text());
+              const res = await s.loadNamModel(text, first.name);
+              if (res.ok) {
+                setNamStatus(first.name);
+                setCabOn(false); localStorage.setItem("gs.cabOn", "0");
+                s.setCabBypass(true);
+              }
             }
           }
         } catch {}
@@ -665,6 +692,7 @@ export default function TabEditor() {
   // Switch the NAM capture among the models already stored in this browser
   // (or back to the built-in amp). Adding a new file still needs the picker.
   const selectNamModel = useCallback(async (name: string | null): Promise<string> => {
+    localStorage.setItem("gs.namChoice", "1");
     if (name === null) {
       samplerRef.current?.bypassNam();
       setNamStatus(null);
@@ -672,8 +700,16 @@ export default function TabEditor() {
       return "built-in amp";
     }
     const lib = (await kvGet<{ name: string; json: string }[]>("namLibrary")) ?? [];
-    const m = lib.find((x) => x.name === name) ?? lib.find((x) => x.name.toLowerCase() === name.toLowerCase());
-    if (!m) throw new Error(`no model named "${name}" — loaded models: ${lib.map((x) => x.name).join(", ") || "none"}`);
+    const lc = name.toLowerCase();
+    let m = lib.find((x) => x.name === name) ?? lib.find((x) => x.name.toLowerCase() === lc);
+    if (!m) {
+      const b = (await fetchBundledNam()).find((x) => x.name === name || x.name.toLowerCase() === lc);
+      if (b) m = { name: b.name, json: await fetch(b.url).then((r) => r.text()) };
+    }
+    if (!m) {
+      const names = [...bundledNam.map((x) => x.name), ...lib.map((x) => x.name)];
+      throw new Error(`no model named "${name}" — available: ${names.join(", ") || "none"}`);
+    }
     setNamStatus("loading…");
     const res = await ensureSampler().loadNamModel(m.json, m.name);
     if (!res.ok) { setNamStatus(`✕ ${res.error ?? "load failed"}`); throw new Error(res.error ?? "load failed"); }
@@ -682,7 +718,7 @@ export default function TabEditor() {
     samplerRef.current?.setCabBypass(true);
     kvSet("namModel", { name: m.name, json: m.json }).catch(() => {});
     return m.name;
-  }, [ensureSampler]);
+  }, [ensureSampler, bundledNam]);
 
   // ---- WebMCP: expose the full human capability surface as page tools ----
   const mcpRef = useRef<WebMcpActions>(null!);
@@ -704,7 +740,7 @@ export default function TabEditor() {
       cab: cabOn,
       pm_bank: pmSource,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
-      nam_models: namLibrary,
+      nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
     },
     setRig: (patch) => {
@@ -1128,7 +1164,7 @@ export default function TabEditor() {
                   <select
                     className={`rig-model ${namStatus && !namStatus.startsWith("✕") ? "loaded" : ""}`}
                     title="Neural Amp Modeler capture: load a .nam file once, then switch between loaded models (agents can too)"
-                    value={namStatus && !namStatus.startsWith("✕") && namLibrary.includes(namStatus) ? namStatus : ""}
+                    value={namStatus && !namStatus.startsWith("✕") && (namLibrary.includes(namStatus) || bundledNam.some((b) => b.name === namStatus)) ? namStatus : ""}
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === "__load") { namFileRef.current?.click(); return; }
@@ -1136,10 +1172,17 @@ export default function TabEditor() {
                     }}
                   >
                     <option value="">built-in amp</option>
-                    {namLibrary.map((n) => <option key={n} value={n}>⚡ {n}</option>)}
+                    {bundledNam.map((b) => <option key={b.name} value={b.name}>⚡ {b.name}</option>)}
+                    {namLibrary.filter((n) => !bundledNam.some((b) => b.name === n)).map((n) => <option key={n} value={n}>⚡ {n}</option>)}
                     <option value="__load">load .nam file…</option>
                   </select>
                 </div>
+                {(() => {
+                  const b = bundledNam.find((x) => x.name === namStatus);
+                  return b?.credit ? (
+                    <a className="nam-credit" href={b.creditUrl} target="_blank" rel="noreferrer">{b.credit}</a>
+                  ) : null;
+                })()}
                 {namStatus?.startsWith("✕") && <span className="nam-error">{namStatus}</span>}
                 {namStatus && !namStatus.startsWith("✕") && (
                   <div className="rig-row">
@@ -1173,6 +1216,7 @@ export default function TabEditor() {
                       const name = file.name.replace(/\.nam$/i, "");
                       const res = await ensureSampler().loadNamModel(text, name);
                       setNamStatus(res.ok ? name : `✕ ${res.error ?? "load failed"}`);
+                      localStorage.setItem("gs.namChoice", "1");
                       if (res.ok) {
                         setCabOn(false);
                         localStorage.setItem("gs.cabOn", "0");
