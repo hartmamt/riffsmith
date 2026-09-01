@@ -22,7 +22,7 @@ export function makeChugAuditionSong(): Song {
   return {
     id: Math.random().toString(36).slice(2, 10),
     title: "Chug Audition",
-    artist: "GuitarScrobble",
+    artist: "RiffSmith",
     bpm: 140,
     tuning,
     sound: "guitar",
@@ -49,7 +49,7 @@ export function makeTremoloAuditionSong(): Song {
   const song: Song = {
     id: Math.random().toString(36).slice(2, 10),
     title: "Tremolo Audition",
-    artist: "GuitarScrobble",
+    artist: "RiffSmith",
     bpm: 180,
     tuning,
     sound: "guitar",
@@ -73,37 +73,61 @@ export function makeTremoloAuditionSong(): Song {
   return song;
 }
 
-// First-run starter: what a new visitor sees. A real riff with sections,
-// a repeat, and every notation family, so the app opens looking alive.
+// First-run starter: what a new visitor sees. Grieg's "In the Hall of the
+// Mountain King" (Peer Gynt, 1875 — public domain). It is written in B minor,
+// so on a Drop B guitar the whole theme lives on the two lowest strings.
+// Bars 1-4 palm-muted (the pizzicato opening), 5-8 the answer a fifth up,
+// then the theme tremolo-picked in 16th-note triplets and a chord finale.
+function barLines(
+  tuning: string[], lines: Record<number, string>, sig: string, spb: number,
+  label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}
+): ReturnType<typeof emptyMeasure> {
+  const m = emptyMeasure(tuning.length, sig, spb);
+  for (const [siStr, cells] of Object.entries(lines)) {
+    const si = Number(siStr);
+    cells.trim().split(/\s+/).forEach((t, i) => {
+      if (t !== "." && i < m.cols.length) m.cols[i][si] = t;
+    });
+  }
+  if (label) m.label = label;
+  return { ...m, ...extra };
+}
+
 export function makeStarterSong(): Song {
   const tuning = [...TUNING_PRESETS["Drop B"]];
-  const b = (cells: string, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
-    ({ ...bar(tuning, cells, sig, spb, label), ...extra });
-  const song: Song = {
+  // Drop B strings, top to bottom: 0 C#4 · 1 G#3 · 2 E3 · 3 B2 · 4 F#2 · 5 B1
+  const B1 = 5, F2 = 4, B2 = 3;
+  const chord = (cells: string) => ({ [B1]: cells, [F2]: cells, [B2]: cells });
+  const trem = "0 * * 2 * * 3 * * 5 * * 7 * * 3 * * 7 * * * * *";
+  return {
     id: Math.random().toString(36).slice(2, 10),
-    title: "Starter Riff",
-    artist: "",
-    bpm: 150,
+    title: "In the Hall of the Mountain King",
+    artist: "Edvard Grieg",
+    bpm: 160,
     tuning,
     sound: "guitar",
     measures: [
-      b("m0 m0 m0 3 m0 m0 5 =", "4/4", 2, "INTRO", { repeatStart: true }),
-      b("m0 m0 m0 3 m0 m0 /7 ~", "4/4", 2, undefined, { repeatEnd: 2 }),
-      b("0 * * * * * * * 5 * * * 7 * * *", "4/4", 4, "TREMOLO"),
-      b("m0 m0 x m0 m0 x m0 m0 m0 m0 x m0", "4/4", 3, "BREAKDOWN"),
-      b("m0 m0 x m0 m0 x 3 h5 p3 m0 m0 x", "4/4", 3),
-      b("0 b = r 5 = = =", "4/4", 2, "OUTRO"),
+      // THEME — first phrase on the low B, palm-muted
+      barLines(tuning, { [B1]: "m0 m2 m3 m5 m7 m3 m7 =" }, "4/4", 2, "THEME", { repeatStart: true }),
+      barLines(tuning, { [B1]: "m6 m2 m6 = m5 m1 m5 =" }, "4/4", 2),
+      barLines(tuning, { [B1]: "m0 m2 m3 m5 m7 m3 m7 =" }, "4/4", 2),
+      barLines(tuning, { [B1]: "m0 . m7 m3 m7 = . .", [F2]: ". m3 . . . . m3 =" }, "4/4", 2),
+      // answer a fifth up, on the F# string, open notes
+      barLines(tuning, { [F2]: "0 2 3 5 7 3 7 =" }, "4/4", 2),
+      barLines(tuning, { [F2]: "6 2 6 = 5 1 5 =" }, "4/4", 2),
+      barLines(tuning, { [F2]: "0 2 3 5 7 3 7 =" }, "4/4", 2),
+      barLines(tuning, { [F2]: "0 . 7 3 7 = . .", [B2]: ". 5 . . . . 5 ~" }, "4/4", 2, undefined, { repeatEnd: 2 }),
+      // TREMOLO — the theme again, every note tremolo-picked (16th-note triplets)
+      barLines(tuning, { [B1]: trem }, "4/4", 6, "TREMOLO"),
+      barLines(tuning, { [B1]: "6 * * 2 * * 6 * * * * * 5 * * 1 * * 5 * * * * *" }, "4/4", 6),
+      barLines(tuning, { [B1]: trem }, "4/4", 6),
+      barLines(tuning, { [B1]: "0 * * 10 * * 7 * * 3 * * 7 * * * * * 10 * * * * *" }, "4/4", 6),
+      // FINALE — B5 stabs, then let it ring
+      barLines(tuning, chord("0 . 0 . 0 . 0 ."), "4/4", 2, "FINALE"),
+      barLines(tuning, chord("0 ~ = = = = = ="), "4/4", 2),
     ],
     updatedAt: Date.now(),
   };
-  // the breakdown's fret-3 accents also hit the F# string a fifth up (power chord)
-  const low = tuning.length - 1;
-  for (const mi of [3, 4]) {
-    song.measures[mi].cols.forEach((col) => {
-      if (col[low] === "3") col[low - 1] = "3";
-    });
-  }
-  return song;
 }
 
 export function makeTechniqueTestSong(): Song {
@@ -111,7 +135,7 @@ export function makeTechniqueTestSong(): Song {
   return {
     id: Math.random().toString(36).slice(2, 10),
     title: "Technique Test",
-    artist: "GuitarScrobble",
+    artist: "RiffSmith",
     bpm: 180,
     tuning,
     sound: "guitar",

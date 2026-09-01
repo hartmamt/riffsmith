@@ -1,12 +1,12 @@
-# GuitarScrobble
+# RiffSmith
 
-GuitarScrobble is a browser-based guitar and bass tab editor built for writing metal riffs: palm-muted chugs, tremolo picking, odd meters, repeats, and section-by-section looping. It plays what you write through a sampled guitar engine with a built-in amp, or through a real Neural Amp Modeler capture running in an AudioWorklet. Everything the editor can do is also exposed to AI agents through WebMCP, so an agent in the browser can write, edit, and audition riffs alongside you.
+RiffSmith is a browser-based guitar and bass tab editor built for writing metal riffs: palm-muted chugs, tremolo picking, odd meters, repeats, and section-by-section looping. It plays what you write through a sampled guitar engine with a built-in amp, or through a real Neural Amp Modeler capture running in an AudioWorklet. Everything the editor can do is also exposed to AI agents through WebMCP, so an agent in the browser can write, edit, and audition riffs alongside you.
 
 Live: https://guitarscrobble.vercel.app
 
 ## WebMCP
 
-GuitarScrobble registers its full capability surface as page tools on `document.modelContext` (falling back to `navigator.modelContext`). The tools run through the same state operations the UI uses, so an agent edit shows up in the grid immediately, autosaves with everything else, and stays editable by the human. There is no separate "agent mode" or shadow document; anything a human can do in the editor, an agent can do through a tool, and vice versa.
+RiffSmith registers its full capability surface as page tools on `document.modelContext` (falling back to `navigator.modelContext`). The tools run through the same state operations the UI uses, so an agent edit shows up in the grid immediately, autosaves with everything else, and stays editable by the human. There is no separate "agent mode" or shadow document; anything a human can do in the editor, an agent can do through a tool, and vice versa.
 
 That parity is the point. A tab editor that only lets an agent read the page, or only lets it fill in a form, forces the agent to work through the UI like a screen scraper. Giving it the same verbs the editor itself is built on means it can compose a riff, reshape a bar, set the amp, hit play, and check the result, all without touching a pixel.
 
@@ -25,8 +25,8 @@ That parity is the point. A tab editor that only lets an agent read the page, or
 | `duplicate_bar` | Copy a bar (with notes) in place after itself. |
 | `delete_bar` | Remove a bar and its notes. |
 | `write_notes` | Write cells on a string in a bar, or a `writes` batch of many lines applied atomically. Returns the affected bars as ASCII. |
-| `get_rig` | Read the amp and performance settings, including which NAM model is loaded. |
-| `set_rig` | Set any subset of tight, volume, mute grip, picking direction, double tracking, engine, cab, palm-mute bank, and loop. |
+| `get_rig` | Read the amp and performance settings, including which NAM model is active and every model loaded in this browser. |
+| `set_rig` | Set any subset of tight, volume, mute grip, picking direction, double tracking, engine, cab, palm-mute bank, NAM model (from the loaded library, or `none`), and loop. |
 | `play` | Play the whole song, a bar range, or a named section, optionally on loop. Switches the view to that song. |
 | `stop` | Stop playback. |
 

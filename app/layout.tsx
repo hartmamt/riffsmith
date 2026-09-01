@@ -6,7 +6,7 @@ const display = Unbounded({ subsets: ["latin"], variable: "--font-display", weig
 const mono = Red_Hat_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500", "700"] });
 
 export const metadata: Metadata = {
-  title: "GuitarScrobble",
+  title: "RiffSmith",
   description: "Tab out riffs before you forget them.",
 };
 

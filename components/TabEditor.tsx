@@ -117,6 +117,12 @@ export default function TabEditor() {
     typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "old");
   const legacyRef = useRef(false);
   const [namStatus, setNamStatus] = useState<string | null>(null); // loaded model name or error
+  const [namLibrary, setNamLibrary] = useState<string[]>([]); // every .nam the user has loaded (IDB)
+  useEffect(() => {
+    kvGet<{ name: string; json: string }[]>("namLibrary")
+      .then((lib) => { if (lib?.length) setNamLibrary(lib.map((m) => m.name)); })
+      .catch(() => {});
+  }, []);
   const [cabOn, setCabOn] = useState(false); // synthetic cab on top of a NAM model
   const [ampLevel, setAmpLevel] = useState(() => {
     if (typeof window === "undefined") return 1;
@@ -656,6 +662,28 @@ export default function TabEditor() {
     return "no custom bank stored — file picker opened for the user";
   }, [ensureSampler]);
 
+  // Switch the NAM capture among the models already stored in this browser
+  // (or back to the built-in amp). Adding a new file still needs the picker.
+  const selectNamModel = useCallback(async (name: string | null): Promise<string> => {
+    if (name === null) {
+      samplerRef.current?.bypassNam();
+      setNamStatus(null);
+      kvDelete("namModel").catch(() => {});
+      return "built-in amp";
+    }
+    const lib = (await kvGet<{ name: string; json: string }[]>("namLibrary")) ?? [];
+    const m = lib.find((x) => x.name === name) ?? lib.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!m) throw new Error(`no model named "${name}" — loaded models: ${lib.map((x) => x.name).join(", ") || "none"}`);
+    setNamStatus("loading…");
+    const res = await ensureSampler().loadNamModel(m.json, m.name);
+    if (!res.ok) { setNamStatus(`✕ ${res.error ?? "load failed"}`); throw new Error(res.error ?? "load failed"); }
+    setNamStatus(m.name);
+    setCabOn(false); localStorage.setItem("gs.cabOn", "0");
+    samplerRef.current?.setCabBypass(true);
+    kvSet("namModel", { name: m.name, json: m.json }).catch(() => {});
+    return m.name;
+  }, [ensureSampler]);
+
   // ---- WebMCP: expose the full human capability surface as page tools ----
   const mcpRef = useRef<WebMcpActions>(null!);
   mcpRef.current = {
@@ -676,6 +704,7 @@ export default function TabEditor() {
       cab: cabOn,
       pm_bank: pmSource,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
+      nam_models: namLibrary,
       loop: loopMode,
     },
     setRig: (patch) => {
@@ -707,6 +736,7 @@ export default function TabEditor() {
       if (patch.loop !== undefined) setLoopMode(patch.loop);
     },
     switchPmBank,
+    selectNamModel,
   };
   // the ref above now reflects this render's state — release any tool call
   // waiting on read-after-write consistency
@@ -786,7 +816,7 @@ export default function TabEditor() {
       <aside className="rack">
         <div className="brand">
           <span className="brand-glyph">◉</span>
-          <h1>Guitar<em>Scrobble</em></h1>
+          <h1>Riff<em>Smith</em></h1>
           <p className="brand-sub">tab it before you forget it</p>
         </div>
         <button className="btn btn-amber wide" onClick={createSong}>+ new song</button>
@@ -1094,26 +1124,21 @@ export default function TabEditor() {
             {(song.sound ?? "synth") === "guitar" && (
               <>
                 <div className="rig-row">
-                  <button
-                    className={`btn rig-model ${namStatus && !namStatus.startsWith("✕") ? "loaded" : ""}`}
-                    title="Load a Neural Amp Modeler .nam capture"
-                    onClick={() => namFileRef.current?.click()}
+                  <span>model</span>
+                  <select
+                    className={`rig-model ${namStatus && !namStatus.startsWith("✕") ? "loaded" : ""}`}
+                    title="Neural Amp Modeler capture: load a .nam file once, then switch between loaded models (agents can too)"
+                    value={namStatus && !namStatus.startsWith("✕") && namLibrary.includes(namStatus) ? namStatus : ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__load") { namFileRef.current?.click(); return; }
+                      void selectNamModel(v === "" ? null : v).catch(() => {});
+                    }}
                   >
-                    {namStatus && !namStatus.startsWith("✕") ? `⚡ ${namStatus}` : "load .nam model"}
-                  </button>
-                  {namStatus && !namStatus.startsWith("✕") && (
-                    <button
-                      className="ghost"
-                      title="back to built-in amp"
-                      onClick={() => {
-                        samplerRef.current?.bypassNam();
-                        setNamStatus(null);
-                        kvDelete("namModel").catch(() => {});
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )}
+                    <option value="">built-in amp</option>
+                    {namLibrary.map((n) => <option key={n} value={n}>⚡ {n}</option>)}
+                    <option value="__load">load .nam file…</option>
+                  </select>
                 </div>
                 {namStatus?.startsWith("✕") && <span className="nam-error">{namStatus}</span>}
                 {namStatus && !namStatus.startsWith("✕") && (
@@ -1152,6 +1177,12 @@ export default function TabEditor() {
                         setCabOn(false);
                         localStorage.setItem("gs.cabOn", "0");
                         kvSet("namModel", { name, json: text }).catch(() => {});
+                        try {
+                          const lib = ((await kvGet<{ name: string; json: string }[]>("namLibrary")) ?? []).filter((x) => x.name !== name);
+                          lib.push({ name, json: text });
+                          await kvSet("namLibrary", lib);
+                          setNamLibrary(lib.map((x) => x.name));
+                        } catch {}
                       }
                     } catch (err) {
                       setNamStatus(`✕ ${String(err)}`);

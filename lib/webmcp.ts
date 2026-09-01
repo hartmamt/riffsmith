@@ -25,6 +25,7 @@ export type RigState = {
   cab: boolean;
   pm_bank: "bassvi" | "gtx" | "custom";
   nam_model: string | null;
+  nam_models: string[];
   loop: boolean;
 };
 
@@ -37,8 +38,9 @@ export type WebMcpActions = {
   stop: () => void;
   setLoopMode: (on: boolean) => void;
   rig: RigState;
-  setRig: (patch: Partial<Omit<RigState, "nam_model" | "pm_bank">>) => void;
+  setRig: (patch: Partial<Omit<RigState, "nam_model" | "nam_models" | "pm_bank">>) => void;
   switchPmBank: (v: "bassvi" | "gtx" | "custom") => Promise<string>;
+  selectNamModel: (name: string | null) => Promise<string>;
 };
 
 type ToolDef = {
@@ -125,7 +127,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
   return [
     {
       name: "list_songs",
-      description: "List all songs in GuitarScrobble with their metadata (tuning, BPM, bar count, sections).",
+      description: "List all songs in RiffSmith with their metadata (tuning, BPM, bar count, sections).",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok(`${get().songs.length} song(s)`, {
@@ -530,7 +532,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "get_rig",
       description:
-        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), nam_model (loaded Neural Amp Modeler capture name, or null — loading one requires the human to pick a local .nam file), loop.",
+        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok("Current rig", { ...get().rig }),
@@ -538,7 +540,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "set_rig",
       description:
-        "Set amp/performance rig settings (any subset). tight 0-1: raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (built-in amp only). engine: 'old' only for A/B comparison. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. The NAM model itself cannot be set here — it requires the human to load a .nam file in the rig panel.",
+        "Set amp/performance rig settings (any subset). tight 0-1: raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (built-in amp only). engine: 'old' only for A/B comparison. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
       inputSchema: {
         type: "object",
         properties: {
@@ -550,6 +552,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           engine: { type: "string", enum: ["new", "old"] },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["bassvi", "gtx", "custom"] },
+          nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
           loop: { type: "boolean" },
         },
         additionalProperties: false,
@@ -581,7 +584,16 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (!["bassvi", "gtx", "custom"].includes(String(args.pm_bank))) return fail("pm_bank must be bassvi, gtx, or custom.");
           bankNote = await a.switchPmBank(args.pm_bank as "bassvi" | "gtx" | "custom");
         }
-        return ok("Rig updated.", { applied: { ...patch, ...(bankNote ? { pm_bank: bankNote } : {}) } });
+        let namNote: string | undefined;
+        if (args.nam_model !== undefined) {
+          const v = String(args.nam_model).trim();
+          try {
+            namNote = await a.selectNamModel(v === "" || v.toLowerCase() === "none" ? null : v);
+          } catch (e) {
+            return fail(`nam_model: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        return ok("Rig updated.", { applied: { ...patch, ...(bankNote ? { pm_bank: bankNote } : {}), ...(namNote ? { nam_model: namNote } : {}) } });
       },
     },
     {
@@ -662,7 +674,7 @@ async function appActions(): Promise<() => WebMcpActions> {
   if (!actionsHolder) {
     await Promise.race([connected, new Promise((r) => setTimeout(r, 5000))]);
   }
-  if (!actionsHolder) throw new Error("GuitarScrobble is still loading — retry in a moment.");
+  if (!actionsHolder) throw new Error("RiffSmith is still loading — retry in a moment.");
   return actionsHolder;
 }
 

@@ -1,4 +1,4 @@
-// Core data model for GuitarScrobble tabs.
+// Core data model for RiffSmith tabs.
 
 // Cells hold short strings: fret numbers ("0".."24"), technique glyphs
 // ("h","p","b","r","/","\\","x","~","t"), or "" for empty.

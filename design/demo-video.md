@@ -16,7 +16,7 @@ tight ~0.5, all-down picking) before recording. Keep loop ON.
 
 ## Cold open (0:00–0:12) — no narration yet
 
-Shot: the Starter Riff already looping in the app, rig column visible, amber
+Shot: In the Hall of the Mountain King (the built-in song) already looping in the app, rig column visible, amber
 playhead sweeping. Two bars, then cut hard on a downbeat to black.
 
 Caption (large, on black): **"Every control on this page is a tool."**
@@ -24,12 +24,13 @@ Caption (large, on black): **"Every control on this page is a tool."**
 ## 1 · The problem (0:12–0:30)
 
 Shot: sidebar → paste a messy hand-written ASCII tab (use the band's own
-tab or any riff with `0000` chug runs and `[Riff A]` headers). Hit import.
+tab or any riff with `0000` chug runs and `[Riff A]` headers — not a
+copyrighted song). Hit import.
 Sections appear, signatures resolve, tuning is derived from the string
 letters. Press ▶ on a section.
 
 VO: *"Every guitarist has a folder of half-finished riffs in text files.
-GuitarScrobble makes them playable — paste any tab, it figures out the tuning,
+RiffSmith makes them playable — paste any tab, it figures out the tuning,
 the sections, the time signatures, and plays it back through a real amp
 model. But the part we built for this challenge is what happens when an
 agent sits down at the same desk."*
@@ -40,16 +41,15 @@ Shot: the agent's chat on one side, the app on the other. Type a prompt and
 let the tools fire. Keep the app visible so bars appear as the agent works.
 
 Prompt to type (say it out loud too):
-> "Make a new song in Drop B at 160 BPM. Give me an 8-bar metalcore
-> breakdown: two bars of palm-muted open-B chugs in triplets, a two-bar
-> variation with a hammer-on lick on the 3rd fret, then repeat the whole
-> thing twice. Name the section BREAKDOWN and play it."
+> "Make a new song in Drop B at 160 BPM and tab the first phrase of
+> In the Hall of the Mountain King on the low B string: 8th notes,
+> palm-muted, four bars. Name the section THEME, repeat it twice, and play it."
 
 What judges should see happen, in order:
 - `create_song` → a new song appears in the sidebar
-- `update_bar` calls → bars switch to triplet grids, BREAKDOWN label appears
+- `update_bar` → THEME label appears on bar 1
 - one `write_notes` batch → notes land in every bar at once
-- `update_bar` sets `‖:` / `:‖ ×2` repeat marks
+- `update_bar` sets `‖:` / `:‖ ×2` repeat marks around the four bars
 - `play` → playhead runs through the repeat, audio plays
 
 VO (while it works): *"Fifteen tools. Not a chat window next to the app —
@@ -96,7 +96,7 @@ VO: *"It's a tab editor a band can actually write with — and the first one
 where the AI in the room can pick up the guitar. Built on WebMCP; everything
 you can click, an agent can call."*
 
-Title card: **[NAME]** · guitarscrobble.vercel.app · "Anything a human can do."
+Title card: **RiffSmith** · guitarscrobble.vercel.app · "Anything a human can do."
 Small print: WebMCP · Next.js · Web Audio · Neural Amp Modeler
 
 ---
@@ -105,7 +105,7 @@ Small print: WebMCP · Next.js · Web Audio · Neural Amp Modeler
 
 - [ ] Browser zoom 100%, window 1440×900, rig open, sidebar visible
 - [ ] Amp model loaded, cab OFF (full-rig capture), volume ~1.1
-- [ ] Starter Riff or your own riff ready and looping for the cold open
+- [ ] Mountain King (built-in) or your own riff ready and looping for the cold open
 - [ ] A messy ASCII tab in your clipboard for scene 1 and 4
 - [ ] WebMCP browser signed in; tools visible under "Site tools" BEFORE you hit record
 - [ ] Mic check — narration can be recorded separately and laid over

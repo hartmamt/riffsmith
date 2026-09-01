@@ -11,11 +11,10 @@ Everything runs client-side; songs are stored in your browser.
    with `navigator.modelContext` and `provideContext` fallbacks). In ChatGPT they
    appear under **Site tools**; in Chrome, DevTools has a WebMCP panel.
 3. Try these prompts, in order — each exercises a different part of the surface:
-   - "List the songs here and read me the intro of the first one."
-   - "Make a new song in Drop B at 160 BPM with an 8-bar metalcore breakdown:
-     two bars of palm-muted open-B triplet chugs, a two-bar variation with a
-     hammer-on lick on the 3rd fret, repeat the whole thing twice, name the
-     section BREAKDOWN, and play it."
+   - "List the songs here and read me the THEME section of the first one."
+   - "Make a new song in Drop B at 160 BPM and tab the first phrase of
+     In the Hall of the Mountain King on the low B string: 8th notes,
+     palm-muted, four bars. Name the section THEME, repeat it twice, and play it."
    - "That's too loose — all downstrokes, more mute pressure, double-track it."
      (uses `get_rig` / `set_rig`; watch the rig panel sliders move)
    - "Change bar 1 to 3/4 and add a bend on the last note."
@@ -42,7 +41,9 @@ The app ships with a sampled guitar and a built-in amp. For the real
 Neural Amp Modeler path: in the **rig** panel (right side), set sound to
 "guitar + amp", click **load .nam model**, and pick any `.nam` capture
 (e.g. from tone3000.com — we can't bundle one for licensing reasons). It runs
-NAM inference in an AudioWorklet in the browser; the model persists across reloads.
+NAM inference in an AudioWorklet in the browser. Every model you load is kept in a
+library (persists across reloads), and an agent can switch between them:
+"switch the amp to the 5150 Red capture" → `set_rig { nam_model }`, or `none` for the built-in amp.
 
 ## Source
 
