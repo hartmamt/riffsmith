@@ -51,3 +51,6 @@ lib/blindedByFearDemo.test.ts
 
 # bundled demo NAM captures (site-only, not redistributable)
 public/nam/models/
+
+# rust build output
+string-engine/target/

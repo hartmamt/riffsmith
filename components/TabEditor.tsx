@@ -128,6 +128,9 @@ export default function TabEditor() {
   const [legacyEngine, setLegacyEngine] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "old");
   const legacyRef = useRef(false);
+  const [hybridEngine, setHybridEngine] = useState(() =>
+    typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "hybrid");
+  const hybridRef = useRef(false);
   const [namStatus, setNamStatus] = useState<string | null>(null); // loaded model name or error
   const [namLibrary, setNamLibrary] = useState<string[]>([]); // every .nam the user has loaded (IDB)
   // captures shipped with the site (public/nam/models/manifest.json — optional, gitignored)
@@ -184,6 +187,7 @@ export default function TabEditor() {
     if (!samplerRef.current) {
       const s = new GuitarSampler(audioRef.current);
       samplerRef.current = s;
+      if (hybridRef.current) { s.engineMode = "hybrid"; void s.enableHybrid(); }
       s.setLevel(levelRef.current);
       const cfg = chugCfgRef.current;
       s.setTight(cfg.tight);
@@ -270,8 +274,14 @@ export default function TabEditor() {
   }, [loopMode]);
   useEffect(() => {
     legacyRef.current = legacyEngine;
-    localStorage.setItem("gs.engine", legacyEngine ? "old" : "new");
-  }, [legacyEngine]);
+    hybridRef.current = hybridEngine;
+    localStorage.setItem("gs.engine", legacyEngine ? "old" : hybridEngine ? "hybrid" : "new");
+    const smp = samplerRef.current;
+    if (smp) {
+      smp.engineMode = hybridEngine ? "hybrid" : "samples";
+      if (hybridEngine) void smp.enableHybrid();
+    }
+  }, [legacyEngine, hybridEngine]);
 
   // sections: labeled measure → range of bars until the next label
   const sections = useMemo(() => {
@@ -761,7 +771,7 @@ export default function TabEditor() {
       mute_grip: muteStr,
       picking,
       double_track: doubled,
-      engine: legacyEngine ? "old" : "new",
+      engine: legacyEngine ? "old" : hybridEngine ? "hybrid" : "new",
       cab: cabOn,
       pm_bank: pmSource,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
@@ -788,7 +798,7 @@ export default function TabEditor() {
         setDoubled(patch.double_track);
         localStorage.setItem("gs.double", patch.double_track ? "1" : "0");
       }
-      if (patch.engine !== undefined) setLegacyEngine(patch.engine === "old");
+      if (patch.engine !== undefined) { setLegacyEngine(patch.engine === "old"); setHybridEngine(patch.engine === "hybrid"); }
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
         localStorage.setItem("gs.cabOn", patch.cab ? "1" : "0");
@@ -1392,11 +1402,12 @@ export default function TabEditor() {
               <div className="rig-row">
                 <span>engine</span>
                 <select
-                  title="A/B the articulation engine: 'new' uses continuous per-string voices; 'old' retriggers a sample for every technique"
-                  value={legacyEngine ? "old" : "new"}
-                  onChange={(e) => setLegacyEngine(e.target.value === "old")}
+                  title="A/B the articulation engine: 'voices' = continuous sampled voices; 'string model' = the sampled attack excites a physical string (experimental); 'retrigger' = a sample per technique"
+                  value={legacyEngine ? "old" : hybridEngine ? "hybrid" : "new"}
+                  onChange={(e) => { setLegacyEngine(e.target.value === "old"); setHybridEngine(e.target.value === "hybrid"); }}
                 >
                   <option value="new">new · voices</option>
+                  <option value="hybrid">hybrid · string model</option>
                   <option value="old">old · retrigger</option>
                 </select>
               </div>

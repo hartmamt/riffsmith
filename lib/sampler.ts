@@ -24,6 +24,13 @@ const BASE = "/samples";
 
 type Articulation = "open" | "palm" | "dead";
 
+// parameter ids of the wasm string engine (mirror of string-engine/src/lib.rs)
+const SP = {
+  FREQ: 0, BRIGHT: 1, LOSS: 2, DISP: 3, NONLIN: 4, MUTE: 5, PICKPOS: 6, PICKUP: 7,
+  PICKUP_HZ: 8, PICKUP_Q: 9, TENSION: 10, DIRECT: 11, VIB_DEPTH: 12, VIB_RATE: 13, GAIN: 14,
+} as const;
+const midiToHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
+
 type StringVoice = {
   src: AudioBufferSourceNode;
   env: GainNode;               // per-voice envelope
@@ -79,6 +86,15 @@ export class GuitarSampler {
   // little from stroke to stroke, and the double-tracked take drifts in pitch
   // like a second tape machine (ADT) instead of sitting at a fixed offset
   private posWalk = 0;      // pick-position random walk, fraction of string length
+  // ---- hybrid string engine (Rust/WASM waveguides in one AudioWorklet) ----
+  // "hybrid": the sampled pick attack EXCITES a physical string model that
+  // then owns sustain, legato, bends, vibrato, palm damping and re-picking.
+  engineMode: "samples" | "hybrid" = "samples";
+  private stringNode: AudioWorkletNode | null = null;
+  private stringOut: GainNode | null = null;
+  private stringRouted: AudioNode | null = null;
+  private stringReady: Promise<boolean> | null = null;
+  private hybrid = new Map<number, { midi: number; art: Articulation; until: number; bendCents: number }>();
   private twinDrift = 0;    // cents, slow random walk for the L/R twin take
 
   // one picking hand: direction alternates across the whole performance
@@ -499,6 +515,8 @@ export class GuitarSampler {
   allNotesOff() {
     const now = this.ctx.currentTime;
     for (const k of [...this.voices.keys()]) this.stopVoice(k, now);
+    this.stringNode?.port.postMessage({ type: "clearAll" });
+    this.hybrid.clear();
   }
 
   // short filtered noise blip — the fret/finger impact of legato techniques
@@ -625,6 +643,11 @@ export class GuitarSampler {
       buffer = this.buffers.get(`n${sampleMidi}_rr${this.nextRr(`n${sampleMidi}`, 3)}`);
     }
     if (!buffer) return;
+
+    if (this.engineMode === "hybrid" && this.stringNode && !opts.isTwin) {
+      this.hybridPick(si, midi, when, art, velocity, stroke, buffer, sampleMidi, opts);
+      return;
+    }
 
     if (opts.isTwin) {
       // ADT-style slow drift: the second take wanders a few cents over a phrase
@@ -785,6 +808,11 @@ export class GuitarSampler {
     }
     if (!buffer) return;
 
+    if (this.engineMode === "hybrid" && this.stringNode) {
+      this.hybridRepick(si, midi, when, art, velocity, stroke, buffer, sampleMidi);
+      return;
+    }
+
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     if (art !== "dead") {
@@ -904,6 +932,7 @@ export class GuitarSampler {
     style: "hammer" | "pull" | "tap",
     opts: { sustain?: number; vibrato?: boolean; velocity?: number } = {}
   ) {
+    if (this.engineMode === "hybrid" && this.stringNode) { this.hybridLegato(si, midi, when, style, opts); return; }
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open" || when > v.releaseAt - 0.03) {
       // documented fallback: no ringing source note → pickless new note
@@ -943,6 +972,7 @@ export class GuitarSampler {
     si: number, when: number, cents: number, dur: number,
     opts: { sustain?: number; vibrato?: boolean; fallbackMidi?: number; velocity?: number } = {}
   ) {
+    if (this.engineMode === "hybrid" && this.stringNode) { this.hybridBend(si, when, cents, dur, opts); return; }
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open" || when > v.releaseAt - 0.03) {
       // fallback: nothing ringing — sound the bend as a pickless glide
@@ -976,6 +1006,7 @@ export class GuitarSampler {
     si: number, midi: number, when: number, dur: number,
     opts: { sustain?: number; vibrato?: boolean; fromMidi?: number; velocity?: number } = {}
   ) {
+    if (this.engineMode === "hybrid" && this.stringNode) { this.hybridSlide(si, midi, when, dur, opts); return; }
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open" || when > v.releaseAt - 0.03) {
       this.pickNote(si, midi, when, {
@@ -1003,8 +1034,227 @@ export class GuitarSampler {
 
   /** Vibrato on whatever is ringing (used when "~" follows legato/bends). */
   vibratoOn(si: number, when: number) {
+    if (this.engineMode === "hybrid" && this.stringNode) { this.sset(si, SP.VIB_DEPTH, 30, 150, when); return; }
     const v = this.voices.get(si);
     if (v) this.attachVibrato(v, when);
+  }
+
+  // ---- hybrid string engine ---------------------------------------------------
+
+  /** Load the wasm string model into an AudioWorklet (idempotent). */
+  async enableHybrid(): Promise<boolean> {
+    if (this.stringReady) return this.stringReady;
+    this.stringReady = (async () => {
+      try {
+        await this.ready();
+        const ctx = this.ctx;
+        await ctx.audioWorklet.addModule("/string/string-processor.js");
+        const wasmBinary = await fetch("/string/string-engine.wasm").then((r) => r.arrayBuffer());
+        const node = new AudioWorkletNode(ctx, "string-processor", {
+          numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+        });
+        await new Promise<void>((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error("string engine init timed out")), 8000);
+          node.port.onmessage = (e) => {
+            if (e.data.type === "ready") { clearTimeout(t); resolve(); }
+            else if (e.data.type === "error") { clearTimeout(t); reject(new Error(e.data.error)); }
+          };
+          node.port.postMessage({ type: "init", wasmBinary, strings: 8 }, [wasmBinary]);
+        });
+        const out = ctx.createGain();
+        out.gain.value = 0.45; // level-matched to the sampled voices at 100 ms
+        node.connect(out);
+        this.stringNode = node;
+        this.stringOut = out;
+        this.routeString();
+        for (let si = 0; si < 8; si++) this.stringDefaults(si);
+        return true;
+      } catch (e) {
+        console.warn("hybrid string engine unavailable", e);
+        return false;
+      }
+    })();
+    return this.stringReady;
+  }
+
+  get hybridReady(): boolean { return !!this.stringNode; }
+
+  private routeString() {
+    if (!this.stringOut) return;
+    const d = this.dest();
+    if (this.stringRouted === d) return;
+    try { this.stringOut.disconnect(); } catch {}
+    this.stringOut.connect(d);
+    this.stringRouted = d;
+  }
+
+  private sset(si: number, param: number, value: number, ms = 0, when?: number, tag?: string) {
+    this.stringNode?.port.postMessage({ type: "set", string: si, param, value, ms, when, tag });
+  }
+
+  // tab notes have a length: after `ring` seconds the fretting hand eases off
+  // (a damping ramp, not a gate). Any later event on the string cancels it.
+  private hybridNoteEnd(si: number, when: number, ring: number) {
+    this.stringNode?.port.postMessage({ type: "cancel", string: si, tag: "end" });
+    this.sset(si, SP.MUTE, 0.6, 150, when + ring, "end");
+  }
+
+  // per-string physics: lower strings are darker, stiffer (more dispersion),
+  // looser (more tension glide) — Drop B on a 6-string, or a bass
+  private stringDefaults(si: number) {
+    const low = Math.min(1, si / 5);
+    this.sset(si, SP.BRIGHT, 0.72 - 0.22 * low);
+    this.sset(si, SP.LOSS, 0.8);
+    this.sset(si, SP.DISP, 0.08 + 0.25 * low);
+    this.sset(si, SP.NONLIN, 0.12 + 0.15 * low);
+    this.sset(si, SP.PICKPOS, 0.12);
+    this.sset(si, SP.PICKUP, 0.07);
+    this.sset(si, SP.PICKUP_HZ, 3400);
+    this.sset(si, SP.PICKUP_Q, 1.5);
+    this.sset(si, SP.TENSION, 6 + 10 * low);
+    this.sset(si, SP.DIRECT, 0.45);
+    this.sset(si, SP.VIB_RATE, 5.5);
+    this.sset(si, SP.GAIN, 1);
+  }
+
+  // the first `ms` of a DI sample, resampled to the target pitch, with a short
+  // fade so the string loop takes over without a click
+  private excitation(buffer: AudioBuffer, ms: number, ratio: number, offsetS = 0): Float32Array {
+    const ch = buffer.getChannelData(0);
+    const sr = buffer.sampleRate;
+    const n = Math.max(32, Math.min(Math.round((sr * ms) / 1000), 8192));
+    const out = new Float32Array(n);
+    const start = Math.round(offsetS * sr);
+    for (let i = 0; i < n; i++) {
+      const p = start + i * ratio;
+      const i0 = Math.floor(p);
+      const fr = p - i0;
+      const a = ch[i0] ?? 0, b = ch[i0 + 1] ?? 0;
+      out[i] = a + (b - a) * fr;
+    }
+    const fade = Math.min(n, Math.round(sr * 0.006));
+    for (let i = 0; i < fade; i++) out[n - 1 - i] *= i / fade;
+    return out;
+  }
+
+  private hybridPick(
+    si: number, midi: number, when: number, art: Articulation, velocity: number, stroke: "d" | "u",
+    buffer: AudioBuffer, sampleMidi: number,
+    opts: { pickless?: boolean; glideFromMidi?: number; glideDur?: number; vibrato?: boolean; sustain?: number }
+  ) {
+    this.routeString();
+    const ratio = art === "dead" ? 1 : Math.pow(2, (midi - sampleMidi) / 12);
+    const excMs = art === "palm" ? 35 : art === "dead" ? 40 : 24;
+    const exc = this.excitation(buffer, excMs, ratio, opts.pickless && art === "open" ? 0.028 : 0);
+    const f = midiToHz(midi);
+    const m = this.muteStrength;
+    const params: [number, number, number][] = [];
+    if (opts.glideFromMidi !== undefined && opts.glideDur) {
+      this.sset(si, SP.FREQ, midiToHz(opts.glideFromMidi), 0, when);
+      params.push([SP.FREQ, f, opts.glideDur * 1000]);
+    } else {
+      params.push([SP.FREQ, f, 0]);
+    }
+    params.push([SP.VIB_DEPTH, 0, 0]);
+    if (art === "palm") {
+      // palm-pressure trajectory: lands early and hard, eases at the pick,
+      // re-clamps to the grip over 50–140 ms
+      this.sset(si, SP.MUTE, 0.9, 2, when - 0.004);
+      params.push([SP.MUTE, 0.15 + 0.3 * m, 1]);
+      this.sset(si, SP.MUTE, 0.35 + 0.6 * m, (0.14 - 0.09 * m) * 1000, when + 0.008);
+    } else if (art === "dead") {
+      params.push([SP.MUTE, 1, 0]);
+    } else {
+      params.push([SP.MUTE, 0, 8]);
+    }
+    const gain = (0.55 + 0.45 * velocity) * (stroke === "d" ? 1 : 0.93) * (art === "dead" ? 0.7 : 1) * (opts.pickless ? 0.6 : 1);
+    // a fresh pick rests on the string first: most of the old ring is stopped
+    const damp = opts.pickless ? 1 : 0.35;
+    this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp, params }, [exc.buffer]);
+    if (opts.vibrato && art === "open") this.sset(si, SP.VIB_DEPTH, 30, 150, when + (opts.glideDur ?? 0.1));
+    const ring = art === "open" ? 1.1 + (opts.sustain ?? 0) + (opts.glideDur ?? 0) : 0.5;
+    if (art === "open") this.hybridNoteEnd(si, when, ring);
+    this.hybrid.set(si, { midi, art, until: when + ring, bendCents: 0 });
+  }
+
+  private hybridRepick(
+    si: number, midi: number, when: number, art: Articulation, velocity: number, stroke: "d" | "u",
+    buffer: AudioBuffer, sampleMidi: number
+  ) {
+    this.routeString();
+    const h = this.hybrid.get(si);
+    const ratio = art === "dead" ? 1 : Math.pow(2, (midi - sampleMidi) / 12);
+    const exc = this.excitation(buffer, art === "open" ? 18 : 30, ratio);
+    const params: [number, number, number][] = [];
+    if (!h || h.midi !== midi) params.push([SP.FREQ, midiToHz(midi), 0]);
+    if (art === "palm") params.push([SP.MUTE, 0.35 + 0.6 * this.muteStrength, 20]);
+    const gain = (0.55 + 0.45 * velocity) * (stroke === "d" ? 1 : 0.93) * 0.8 * Math.pow(10, (Math.random() - 0.5) * 0.06);
+    // tremolo: each stroke re-excites the SAME vibrating string, the pick
+    // contact knocking down some of the energy so it never builds up
+    this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp: 0.5, params }, [exc.buffer]);
+    const ring = art === "open" ? 0.9 : 0.5;
+    if (art === "open") this.hybridNoteEnd(si, when, ring);
+    this.hybrid.set(si, { midi, art, until: when + ring, bendCents: 0 });
+  }
+
+  private hybridLegato(
+    si: number, midi: number, when: number, style: "hammer" | "pull" | "tap",
+    opts: { sustain?: number; vibrato?: boolean; velocity?: number }
+  ) {
+    const h = this.hybrid.get(si);
+    if (!h || h.art !== "open" || when > h.until) {
+      this.pickNote(si, midi, when, { ...opts, pickless: true });
+      this.fretImpact(when, style === "tap" ? 0.09 : 0.05);
+      return;
+    }
+    // the fret termination moves: pitch glides over 12–25 ms, plus the impact
+    this.sset(si, SP.FREQ, midiToHz(midi), style === "hammer" ? 18 : style === "pull" ? 25 : 12, when);
+    this.fretImpact(when, style === "tap" ? 0.09 : style === "hammer" ? 0.055 : 0.03);
+    if (style === "pull") {
+      // the finger leaving the string damps it briefly
+      this.sset(si, SP.MUTE, 0.35, 0, when);
+      this.sset(si, SP.MUTE, 0, 40, when + 0.005);
+    }
+    if (opts.vibrato) this.sset(si, SP.VIB_DEPTH, 30, 150, when + 0.08);
+    const ring = 0.9 + (opts.sustain ?? 0);
+    this.hybridNoteEnd(si, when, ring);
+    h.midi = midi; h.bendCents = 0; h.until = when + ring;
+  }
+
+  private hybridBend(
+    si: number, when: number, cents: number, dur: number,
+    opts: { sustain?: number; vibrato?: boolean; fallbackMidi?: number; velocity?: number }
+  ) {
+    const h = this.hybrid.get(si);
+    if (!h || h.art !== "open" || when > h.until) {
+      if (opts.fallbackMidi !== undefined) {
+        this.pickNote(si, opts.fallbackMidi, when, {
+          ...opts, pickless: true, glideFromMidi: opts.fallbackMidi - cents / 100, glideDur: dur,
+        });
+      }
+      return;
+    }
+    this.sset(si, SP.FREQ, midiToHz(h.midi) * Math.pow(2, cents / 1200), dur * 1000, when);
+    const ring = Math.max(0.9, dur + 0.5) + (opts.sustain ?? 0);
+    this.hybridNoteEnd(si, when, ring);
+    h.bendCents = cents; h.until = when + ring;
+    if (opts.vibrato) this.sset(si, SP.VIB_DEPTH, 30, 150, when + dur);
+  }
+
+  private hybridSlide(
+    si: number, midi: number, when: number, dur: number,
+    opts: { sustain?: number; vibrato?: boolean; fromMidi?: number; velocity?: number }
+  ) {
+    const h = this.hybrid.get(si);
+    if (!h || h.art !== "open" || when > h.until) {
+      this.pickNote(si, midi, when, { ...opts, pickless: true, glideFromMidi: opts.fromMidi ?? midi - 2, glideDur: dur });
+      return;
+    }
+    this.sset(si, SP.FREQ, midiToHz(midi), dur * 1000, when);
+    const ring = dur + 0.8 + (opts.sustain ?? 0);
+    this.hybridNoteEnd(si, when, ring);
+    h.midi = midi; h.bendCents = 0; h.until = when + ring;
+    if (opts.vibrato) this.sset(si, SP.VIB_DEPTH, 30, 150, when + dur);
   }
 
   // ---- NAM ------------------------------------------------------------------

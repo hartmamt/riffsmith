@@ -21,7 +21,7 @@ export type RigState = {
   mute_grip: number;
   picking: "alternate" | "down" | "up";
   double_track: boolean;
-  engine: "new" | "old";
+  engine: "new" | "old" | "hybrid";
   cab: boolean;
   pm_bank: "bassvi" | "gtx" | "custom";
   nam_model: string | null;
@@ -540,7 +540,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "set_rig",
       description:
-        "Set amp/performance rig settings (any subset). tight 0-1: raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (built-in amp only). engine: 'old' only for A/B comparison. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
+        "Set amp/performance rig settings (any subset). tight 0-1: raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (built-in amp only). engine: 'new' = sampled voices, 'hybrid' = sampled attack exciting a physical string model (experimental), 'old' only for A/B comparison. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
       inputSchema: {
         type: "object",
         properties: {
@@ -549,7 +549,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           mute_grip: { type: "number", minimum: 0, maximum: 1 },
           picking: { type: "string", enum: ["alternate", "down", "up"] },
           double_track: { type: "boolean" },
-          engine: { type: "string", enum: ["new", "old"] },
+          engine: { type: "string", enum: ["new", "old", "hybrid"] },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["bassvi", "gtx", "custom"] },
           nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
@@ -575,7 +575,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (args[k] !== undefined) patch[k] = Boolean(args[k]);
         }
         if (args.engine !== undefined) {
-          if (!["new", "old"].includes(String(args.engine))) return fail("engine must be new or old.");
+          if (!["new", "old", "hybrid"].includes(String(args.engine))) return fail("engine must be new, old, or hybrid.");
           patch.engine = args.engine;
         }
         a.setRig(patch as Parameters<WebMcpActions["setRig"]>[0]);
