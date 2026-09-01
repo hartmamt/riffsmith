@@ -1,6 +1,6 @@
 # Testing instructions (paste into the Devpost "testing instructions" field)
 
-**Live app:** https://guitarscrobble.vercel.app — no login, nothing to install.
+**Live app:** https://riffsmith.app — no login, nothing to install.
 Everything runs client-side; songs are stored in your browser.
 
 ## With an agent (the point of the project)

@@ -2,7 +2,7 @@
 
 RiffSmith is a browser-based guitar and bass tab editor built for writing metal riffs: palm-muted chugs, tremolo picking, odd meters, repeats, and section-by-section looping. It plays what you write through a sampled guitar engine with a built-in amp, or through a real Neural Amp Modeler capture running in an AudioWorklet. Everything the editor can do is also exposed to AI agents through WebMCP, so an agent in the browser can write, edit, and audition riffs alongside you.
 
-Live: https://guitarscrobble.vercel.app
+Live: https://riffsmith.app
 
 ## WebMCP
 

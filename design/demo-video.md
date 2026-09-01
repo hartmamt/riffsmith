@@ -96,7 +96,7 @@ VO: *"It's a tab editor a band can actually write with — and the first one
 where the AI in the room can pick up the guitar. Built on WebMCP; everything
 you can click, an agent can call."*
 
-Title card: **RiffSmith** · guitarscrobble.vercel.app · "Anything a human can do."
+Title card: **RiffSmith** · riffsmith.app · "Anything a human can do."
 Small print: WebMCP · Next.js · Web Audio · Neural Amp Modeler
 
 ---
