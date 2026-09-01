@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Red+Hat+Mono:wght@400;500;700&display=swap">
+<style>
+  body{margin:0;background:#0c0a08;color:#e8ddc8;font-family:"Red Hat Mono",monospace;}
+  .card{width:1200px;height:800px;position:relative;overflow:hidden;background:
+    radial-gradient(900px 500px at 75% -10%, rgba(255,174,52,0.10), transparent 60%),
+    radial-gradient(700px 400px at 5% 110%, rgba(255,77,46,0.06), transparent 60%), #0c0a08;}
+  .grain{position:absolute;inset:0;opacity:.05;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");}
+  h1{font-family:Unbounded,sans-serif;font-weight:900;font-size:64px;margin:0;line-height:1.05;letter-spacing:-0.01em}
+  h1 em{font-style:normal;color:#ffae34;text-shadow:0 0 30px rgba(255,174,52,.35)}
+  .tag{font-family:Unbounded,sans-serif;font-size:20px;color:#9a8f79;margin-top:18px;letter-spacing:.02em}
+  .tools{position:absolute;right:60px;top:90px;width:440px;display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:13px}
+  .tools div{background:#14110d;border:1px solid #2b241b;border-radius:6px;padding:7px 10px;color:#e8ddc8}
+  .tools div span{color:#ffae34}
+  .tools .h{grid-column:1/-1;background:none;border:0;padding:0 0 2px;font-family:Unbounded,sans-serif;font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:#5f574a}
+  .tab{position:absolute;left:60px;bottom:110px;font-size:15px;line-height:1.45;color:#9a8f79;white-space:pre}
+  .tab b{color:#e8ddc8;font-weight:500}
+  .foot{position:absolute;right:60px;bottom:64px;text-align:right;font-size:13px;color:#5f574a;letter-spacing:.15em;text-transform:uppercase}
+  .foot b{display:block;color:#ffae34;font-size:16px;letter-spacing:.1em;margin-bottom:6px}
+</style></head><body>
+<div class="card"><div class="grain"></div>
+  <div style="position:absolute;left:60px;top:70px;width:560px">
+    <div style="font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:#b97a1e;margin-bottom:18px">◉ WebMCP challenge entry</div>
+    <h1>Guitar<em>Scrobble</em></h1>
+    <div class="tag">A metal tab editor where<br>the AI in the room can pick up the guitar.</div>
+  </div>
+  <div class="tools">
+    <div class="h">15 WebMCP tools · anything a human can do</div>
+    <div><span>create_song</span> · <span>update_song</span></div>
+    <div><span>import_ascii_tab</span></div>
+    <div><span>add_bars</span> · <span>update_bar</span></div>
+    <div><span>duplicate_bar</span> · <span>delete_bar</span></div>
+    <div><span>write_notes</span> (atomic batch)</div>
+    <div><span>get_song</span> · <span>list_songs</span></div>
+    <div><span>get_rig</span> · <span>set_rig</span></div>
+    <div><span>play</span> · <span>stop</span> · <span>delete_song</span></div>
+  </div>
+  <div class="tab">E |<b>------------7---h10-p7--9---</b>|
+B |<b>m0--m0--m0--m0--m0--m0--m0--</b>|   <span style="color:#b97a1e">← written by an agent, played through a real amp model</span></div>
+  <div class="foot"><b>guitarscrobble.vercel.app</b>Next.js · Web Audio · AudioWorklet · Neural Amp Modeler</div>
+</div>
+</body></html>

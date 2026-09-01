@@ -1,0 +1,22 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Rig column" },
+    { "id": "page-2", "name": "Earlier directions" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 760, "title": "C · Rig column (lead)", "page": "page-1" },
+    { "file": "CKnobs.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 760, "title": "C2 · Rotary knobs", "page": "page-1" },
+    { "file": "CPedals.dc.html", "x": 2800, "y": 0, "w": 1280, "h": 760, "title": "C3 · Stompboxes", "page": "page-1" },
+    { "file": "DirectionA.dc.html", "x": 0, "y": 0, "w": 1280, "h": 760, "title": "A · Rig drawer", "page": "page-2" },
+    { "file": "DirectionB.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 760, "title": "B · Grouped rack strip", "page": "page-2" },
+    { "file": "DirectionC.dc.html", "x": 2800, "y": 0, "w": 1280, "h": 760, "title": "C · Original sketch", "page": "page-2" }
+  ],
+  "annotations": [
+    { "id": "brief-c", "x": 0, "y": -200, "w": 380, "page": "page-1", "text": "Direction C chosen — rig column iterations.\nAll three share: minimal header (bpm · tuning · loop · play), units with LED status dots and collapse chevrons, '‹ hide' to reclaim sheet width, persistent-settings hint at the bottom.\nThey differ only in control style — pick a dial language." },
+    { "id": "note-c1", "x": 420, "y": -130, "w": 290, "page": "page-1", "text": "C · SLIDERS (lead)\nFlat sliders + toggles + segmented picking. Chugs unit shown collapsed. Most compact and closest to today's controls.\nTradeoff: least thematic flair." },
+    { "id": "note-c2", "x": 1400, "y": -130, "w": 290, "page": "page-1", "text": "C2 · ROTARY KNOBS\nAmp-face rotary dials for tight/volume/grip on a brushed head unit. Most 'amp' of the three.\nTradeoff: knobs need drag interaction; values less scannable." },
+    { "id": "note-c3", "x": 2800, "y": -130, "w": 290, "page": "page-1", "text": "C3 · STOMPBOXES\nEach unit a pedal: colored top stripe, LED, footswitch. Playful, very genre.\nTradeoff: heavier visually; footswitches are decorative." },
+    { "id": "note-old", "x": 0, "y": -130, "w": 300, "page": "page-2", "text": "Earlier directions kept for reference — A (drawer) and B (rack strip) were not chosen; C's original sketch preserved for comparison." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

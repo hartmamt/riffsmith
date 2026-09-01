@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Red+Hat+Mono:wght@400;500;700&display=swap">
+  <style>
+    :root {
+      --ink:#0c0a08; --panel:#14110d; --panel2:#1a1611; --line:#2b241b; --line-soft:#221c14;
+      --amber:#ffae34; --amber-dim:#b97a1e; --amber-glow:rgba(255,174,52,0.22);
+      --hot:#ff4d2e; --bone:#e8ddc8; --bone-dim:#9a8f79; --bone-faint:#5f574a;
+    }
+    body { margin:0; background:var(--ink); color:var(--bone); font-family:"Red Hat Mono",ui-monospace,monospace; font-size:13px; }
+    a { color:#ffae34; } a:hover { color:#b97a1e; }
+    .btn { background:var(--panel2); border:1px solid var(--line); border-radius:6px; color:var(--bone); font:inherit; font-size:12px; padding:7px 12px; }
+    .btn-amber { background:linear-gradient(180deg,#ffae34,#b97a1e); border:1px solid #b97a1e; color:#1c1204; font-weight:700; }
+    .klabel { font-size:9px; text-transform:uppercase; letter-spacing:0.2em; color:var(--bone-faint); }
+    .kinput { background:var(--panel2); border:1px solid var(--line); border-radius:6px; color:var(--bone); font:inherit; font-size:12px; padding:5px 8px; }
+    .grouplabel { font-family:Unbounded,sans-serif; font-size:8px; letter-spacing:0.3em; color:var(--bone-faint); text-transform:uppercase; }
+  </style>
+</helmet>
+<div style="width:1280px; height:760px; background:#0c0a08; display:flex; overflow:hidden;">
+
+  <!-- sidebar (unchanged context) -->
+  <div style="width:200px; flex:none; border-right:1px solid #2b241b; background:linear-gradient(180deg,#14110d,#0c0a08); padding:18px 14px; display:flex; flex-direction:column; gap:12px;">
+    <div>
+      <div style="font-family:Unbounded,sans-serif; font-weight:900; font-size:16px; line-height:1.1;">Guitar<span style="color:#ffae34;">Scrobble</span></div>
+      <div style="color:#5f574a; font-size:9px; letter-spacing:0.08em; margin-top:4px;">tab it before you forget it</div>
+    </div>
+    <div class="btn btn-amber" style="text-align:center;">+ new song</div>
+    <div class="btn" style="text-align:center;">⇪ paste ascii tab</div>
+    <div class="btn" style="text-align:center; color:#9a8f79;">⚙ audition songs ▾</div>
+    <div style="display:flex; flex-direction:column; gap:3px; margin-top:6px;">
+      <div style="border:1px solid #b97a1e; background:rgba(255,174,52,0.06); box-shadow:inset 2px 0 0 #ffae34; border-radius:6px; padding:7px 9px;">
+        <div style="font-weight:700; font-size:12px;">Glass Eye</div>
+        <div style="color:#5f574a; font-size:9px;">Subsist · 7 bars · 6str</div>
+      </div>
+      <div style="padding:7px 9px;">
+        <div style="font-weight:700; font-size:12px; color:#9a8f79;">Night Ledger</div>
+        <div style="color:#5f574a; font-size:9px;">Subsist · 3 bars · 4str</div>
+      </div>
+      <div style="padding:7px 9px;">
+        <div style="font-weight:700; font-size:12px; color:#9a8f79;">Chug Audition</div>
+        <div style="color:#5f574a; font-size:9px;">GuitarScrobble · 7 bars</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- main column -->
+  <div style="flex:1; padding:20px 26px; display:flex; flex-direction:column; gap:0;">
+
+    <!-- HEADER: essentials only -->
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding-bottom:14px; border-bottom:1px solid #2b241b;">
+      <div>
+        <div style="font-family:Unbounded,sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.01em;">Glass Eye</div>
+        <div style="color:#ffae34; text-transform:uppercase; letter-spacing:0.3em; font-size:10px; margin-top:2px;">Subsist</div>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:12px;">
+        <div style="display:flex; flex-direction:column; gap:3px;">
+          <div class="klabel">bpm</div>
+          <div class="kinput" style="width:52px;">159</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:3px;">
+          <div class="klabel">tuning</div>
+          <div class="kinput">Drop B ▾</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:3px;">
+          <div class="klabel">sound</div>
+          <div class="kinput">guitar + amp ▾</div>
+        </div>
+        <div class="btn" style="color:#ffae34; border-color:#b97a1e; box-shadow:inset 0 0 12px rgba(255,174,52,0.12);">⟳ loop</div>
+        <div class="btn btn-amber" style="padding:7px 18px;">▶ play</div>
+        <div class="btn" style="display:flex; align-items:center; gap:6px; border-color:#b97a1e; color:#ffae34;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="4" width="13" height="8" rx="1.5"></rect><circle cx="5" cy="8" r="1.4"></circle><circle cx="11" cy="8" r="1.4"></circle></svg>
+          rig
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10l4-4 4 4"></path></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- AMP RIG drawer (expanded state) -->
+    <div style="background:linear-gradient(180deg,#1a1611,#14110d); border:1px solid #2b241b; border-top:none; border-radius:0 0 10px 10px; padding:14px 18px 16px; display:flex; gap:0; box-shadow:0 10px 24px rgba(0,0,0,0.45);">
+      <div style="display:flex; flex-direction:column; gap:10px; padding-right:22px; border-right:1px dashed #2b241b;">
+        <div class="grouplabel">amp</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="btn" style="border-color:#b97a1e; color:#ffae34;">⚡ 5150 Blue</div>
+          <div class="btn" style="color:#5f574a;">cab</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">tight</div>
+            <div style="width:90px; height:4px; background:#2b241b; border-radius:2px; position:relative; margin-top:6px;"><div style="position:absolute; left:0; top:0; height:4px; width:35%; background:#ffae34; border-radius:2px;"></div><div style="position:absolute; left:33%; top:-4px; width:12px; height:12px; border-radius:50%; background:#ffae34;"></div></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">volume</div>
+            <div style="width:90px; height:4px; background:#2b241b; border-radius:2px; position:relative; margin-top:6px;"><div style="position:absolute; left:0; top:0; height:4px; width:55%; background:#ffae34; border-radius:2px;"></div><div style="position:absolute; left:52%; top:-4px; width:12px; height:12px; border-radius:50%; background:#ffae34;"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px; padding:0 22px; border-right:1px dashed #2b241b;">
+        <div class="grouplabel">chugs</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">mute grip</div>
+            <div style="width:90px; height:4px; background:#2b241b; border-radius:2px; position:relative; margin-top:6px;"><div style="position:absolute; left:0; top:0; height:4px; width:50%; background:#ffae34; border-radius:2px;"></div><div style="position:absolute; left:47%; top:-4px; width:12px; height:12px; border-radius:50%; background:#ffae34;"></div></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">pm bank</div>
+            <div class="kinput">Metal GTX ▾</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px; padding:0 22px;">
+        <div class="grouplabel">performance</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">picking</div>
+            <div class="kinput">alternate ▾</div>
+          </div>
+          <div class="btn" style="border-color:#b97a1e; color:#ffae34; box-shadow:inset 0 0 12px rgba(255,174,52,0.12);">⧉ double</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <div class="klabel">engine</div>
+            <div class="kinput" style="color:#9a8f79;">new · voices ▾</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BAR TOOLBAR: grouped, export consolidated -->
+    <div style="display:flex; align-items:center; gap:14px; padding:16px 0;">
+      <div style="display:flex; gap:0; border:1px solid #2b241b; border-radius:6px; overflow:hidden;">
+        <div style="padding:7px 12px; border-right:1px solid #2b241b; background:#1a1611;">+ bar</div>
+        <div style="padding:7px 12px; border-right:1px solid #2b241b; background:#1a1611;">⧉</div>
+        <div style="padding:7px 12px; background:#1a1611; color:#9a8f79;">−</div>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:8px;">
+        <div style="display:flex; flex-direction:column; gap:3px;"><div class="klabel">bar 1 · sig</div><div class="kinput">3/4 ▾</div></div>
+        <div style="display:flex; flex-direction:column; gap:3px;"><div class="klabel">grid</div><div class="kinput">8ths ▾</div></div>
+        <div class="btn" style="color:#ffae34; border-color:#b97a1e;">‖: start</div>
+        <div style="display:flex; flex-direction:column; gap:3px;"><div class="klabel">repeat end</div><div class="kinput" style="color:#9a8f79;">off ▾</div></div>
+        <div style="display:flex; flex-direction:column; gap:3px;"><div class="klabel">section name</div><div class="kinput" style="width:150px;">INTRO</div></div>
+      </div>
+      <div style="flex:1;"></div>
+      <div class="btn">ascii ▾</div>
+    </div>
+
+    <!-- sheet snippet -->
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <div style="display:flex; align-items:center; gap:10px; border-left:3px solid #ffae34; padding-left:10px; font-family:Unbounded,sans-serif; font-size:11px; font-weight:700; letter-spacing:0.12em; color:#ffae34; text-transform:uppercase;">
+        <div style="width:24px; height:24px; border-radius:50%; border:1px solid #b97a1e; display:flex; align-items:center; justify-content:center; font-size:10px;">▶</div>
+        Intro
+      </div>
+      <div style="display:flex; gap:18px;">
+        <div style="background:linear-gradient(180deg,#14110d,#1a1611); border:1px solid #2b241b; border-left:3px double #b97a1e; border-radius:8px; padding:16px 14px 12px; position:relative; width:300px;">
+          <div style="position:absolute; top:-8px; left:10px; background:#0c0a08; border:1px solid #2b241b; border-radius:4px; color:#ffae34; font-size:9px; padding:0 6px;">‖: 1 · 3/4</div>
+          <div style="display:flex; flex-direction:column; gap:9px; color:#5f574a; font-size:10px;">
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">C#</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">G#</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">E&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;8&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;8</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">B</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">F#</div>
+            <div style="color:#e8ddc8;">B&nbsp;&nbsp;&nbsp;0</div>
+          </div>
+        </div>
+        <div style="background:linear-gradient(180deg,#14110d,#1a1611); border:1px solid #2b241b; border-right:3px double #b97a1e; border-radius:8px; padding:16px 14px 12px; position:relative; width:300px;">
+          <div style="position:absolute; top:-8px; left:10px; background:#0c0a08; border:1px solid #2b241b; border-radius:4px; color:#ffae34; font-size:9px; padding:0 6px;">2 · 3/4 :‖ ×3</div>
+          <div style="display:flex; flex-direction:column; gap:9px; color:#5f574a; font-size:10px;">
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">C#</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">G#</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">E&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">B</div>
+            <div style="border-bottom:1px solid #2b241b; padding-bottom:6px;">F#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7&nbsp;&nbsp;8&nbsp;&nbsp;&nbsp;&nbsp;8&nbsp;&nbsp;7</div>
+            <div style="color:#e8ddc8;">B&nbsp;&nbsp;&nbsp;7</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# design canvas build output (2MB seeded page)
+design/*.html
+!design/*.dc.html
+.vercel
+
+# third-party song transcription — not for public distribution
+lib/blindedByFearDemo.ts
+lib/blindedByFearDemo.test.ts

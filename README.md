@@ -1,36 +1,160 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GuitarScrobble
 
-## Getting Started
+GuitarScrobble is a browser-based guitar and bass tab editor built for writing metal riffs: palm-muted chugs, tremolo picking, odd meters, repeats, and section-by-section looping. It plays what you write through a sampled guitar engine with a built-in amp, or through a real Neural Amp Modeler capture running in an AudioWorklet. Everything the editor can do is also exposed to AI agents through WebMCP, so an agent in the browser can write, edit, and audition riffs alongside you.
 
-First, run the development server:
+Live: https://guitarscrobble.vercel.app
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## WebMCP
+
+GuitarScrobble registers its full capability surface as page tools on `document.modelContext` (falling back to `navigator.modelContext`). The tools run through the same state operations the UI uses, so an agent edit shows up in the grid immediately, autosaves with everything else, and stays editable by the human. There is no separate "agent mode" or shadow document; anything a human can do in the editor, an agent can do through a tool, and vice versa.
+
+That parity is the point. A tab editor that only lets an agent read the page, or only lets it fill in a form, forces the agent to work through the UI like a screen scraper. Giving it the same verbs the editor itself is built on means it can compose a riff, reshape a bar, set the amp, hit play, and check the result, all without touching a pixel.
+
+### Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `list_songs` | List every song with tuning, BPM, bar count, and section starts. |
+| `get_song` | Read one song in full: metadata, per-bar signature/grid/repeats, and the complete ASCII tab. Includes the notation guide. |
+| `create_song` | Create and open a new song with a tuning preset, BPM, bar count, and starting time signature. |
+| `update_song` | Change title, artist, BPM, tuning preset (notes are kept), or playback sound (synth / guitar / guitar-di). |
+| `delete_song` | Delete a song. Requires `confirm_title` to match exactly; refuses to delete the last song. |
+| `import_ascii_tab` | Import a pasted ASCII tab as a new song, including section headers, signatures, repeats, and inline slides. |
+| `add_bars` | Append or insert empty bars, inheriting or overriding signature and grid. |
+| `update_bar` | Set one bar's time signature, grid, section name, or repeat marks. |
+| `duplicate_bar` | Copy a bar (with notes) in place after itself. |
+| `delete_bar` | Remove a bar and its notes. |
+| `write_notes` | Write cells on a string in a bar, or a `writes` batch of many lines applied atomically. Returns the affected bars as ASCII. |
+| `get_rig` | Read the amp and performance settings, including which NAM model is loaded. |
+| `set_rig` | Set any subset of tight, volume, mute grip, picking direction, double tracking, engine, cab, palm-mute bank, and loop. |
+| `play` | Play the whole song, a bar range, or a named section, optionally on loop. Switches the view to that song. |
+| `stop` | Stop playback. |
+
+The read tools (`list_songs`, `get_song`, `get_rig`) carry `readOnlyHint: true`.
+
+### Design choices
+
+**Returns you can verify.** `write_notes` echoes the affected bars back as ASCII tab so the agent can see what landed without a second call. For batches touching more than four bars the echo is skipped to keep the response small, and the message says to spot-check with `get_song`. `get_song` returns the full ASCII rendering alongside the structured per-bar data, so an agent can read the tab the same way a guitarist would.
+
+**Validation with a guide.** Every `write_notes` token is checked against the cell grammar before anything is applied. A bad token, an out-of-range fret, a wrong string number, or too many tokens for the bar's slot count fails with a message that names the problem and, for notation errors, includes the full notation guide so the agent can correct itself.
+
+**Atomic batches.** `write_notes` accepts a `writes` array. The whole batch is validated first and then applied in a single state update; a single invalid line rejects the whole batch and nothing changes.
+
+**Serialized queue with read-after-write consistency.** All tool calls run through one promise queue, so concurrent invocations apply strictly in order. After a successful mutation the tool waits for React to commit (the app pings the bridge on every render) before the next call runs, capped at 150 ms so a tool can never hang. A `create_song` followed immediately by `get_song` sees the new song.
+
+**Early registration.** Tools register at module-evaluation time, before React mounts, and via `provideContext` when available so the whole tool set lands in one snapshot. The first page snapshot an agent takes already contains all fifteen tools. Tool execution waits (up to 5 s) for the app to connect its state, and returns a retry message rather than an error if the page is still loading.
+
+**Console shim for testing.** `window.__webmcp` is always installed, even when a native `modelContext` exists, because native snapshot pipelines can lag page load by a few hundred milliseconds. From the devtools console:
+
+```js
+__webmcp.list()
+// ["list_songs", "get_song", "create_song", ...]
+
+await __webmcp.call("get_song", {})
+await __webmcp.call("write_notes", {
+  writes: [
+    { bar: 1, string: 6, cells: "m0 m0 m0 3 m0 m0 5 =" },
+    { bar: 1, string: 5, cells: ". . . 5 . . 7 =" },
+  ],
+})
+await __webmcp.call("play", { from_bar: 1, to_bar: 1, loop: true })
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Without a `modelContext` provider in the browser the shim is the only surface, and the console logs which path was taken.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Try it with an agent
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open the live site in a WebMCP-capable browser with an agent attached, and ask it things like:
 
-## Learn More
+1. "Create a song called 'Split Skull' in Drop B at 190 BPM with 8 bars of 4/4, then write a 16th-note chug riff on the low string with a power chord on beat 3 of every other bar."
+2. "Import this tab I pasted from a forum, name the sections Intro / Verse / Breakdown, and loop the Breakdown so I can hear it."
+3. "Bar 5 should be 7/8. Change it, fix the notes so nothing hangs past the bar, and play bars 4 through 6."
+4. "Turn the mute grip up to 0.8, switch to all downstrokes, enable double tracking, and play the whole thing on loop."
+5. "Read the song and tell me which bars have tremolo picking, then double the length of the intro by duplicating its bars."
 
-To learn more about Next.js, take a look at the following resources:
+Every one of those maps onto the tools above without any UI interaction.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Features
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- ASCII tab import and export. The importer reads hand-written tabs with any string count, 2- or 3-character slot widths detected per system, dense same-digit chug runs (`00000000`), multi-digit frets, section headers like `[1] 0:01 RIFF 3/4 ~160 BPM -- 2 bars, x8` (which become section names, signatures, and repeats), inline `5/7` and `5h7` techniques, and `|: :|` repeat marks. Nothing is dropped silently; anything skipped comes back as a warning. Export is round-trip safe.
+- Per-bar time signatures (2/4, 3/4, 4/4, 5/4, 6/4, 7/4, 6/8, 9/8, 12/8) and grids (quarters, 8ths, triplets, 16ths, 16th triplets). Bar duration respects the denominator, so 6/8 beats are eighth notes.
+- Sections and repeat signs, with loop-per-riff playback by bar range or section name.
+- Live editing while looping. The scheduler re-reads song state as it advances, so edits land on the next pass.
+- Lookahead AudioContext scheduler: events are placed about 130 ms ahead on the audio clock and refreshed every 25 ms. JS timers decide when to schedule, never when a note sounds.
+- Sampled guitar engine with persistent per-string voices. Hammer-ons, pull-offs, taps, slides, bends, releases, and vibrato are continuous `detune` automation on the same voice, so a phrase gets one pick transient. Palm-mute chugs use velocity layers and round robins with gap-aware decay. Tremolo picking overlaps short stroke voices on top of the ringing body and re-excites it on long runs. Alternate, down, and up picking with per-stroke tone coloring. Optional double tracking with independent hard-panned L/R takes.
+- Built-in amp chain: tightening high-pass and mid emphasis, waveshaper drive, post EQ, a synthetic cabinet impulse response rendered offline, and a compressor.
+- Neural Amp Modeler inference in an AudioWorklet. Load a `.nam` capture from disk; the model runs through `@opendaw/nam-wasm` at 48 kHz, output is loudness-normalized from the model's metadata, and the synthetic cab can be added after it for amp-only captures. A1 and A2 WaveNet models are supported. The loaded model persists in IndexedDB across reloads.
+- Rig side panel with persisted settings (tight, volume, mute grip, picking, double tracking, engine, cab, palm-mute bank, loop).
+- Custom palm-mute sample bank: drop in your own DI `.wav` hits named `<note><octave>_v<velocity>_rr<n>.wav`; they persist in IndexedDB and replace the built-in bank where they cover the pitch.
+- `scripts/mine_chugs.py`: mine palm-mute hits out of full DI stems into bank-convention files, reporting every candidate and why rejects were rejected.
+- Audition songs (technique test, chug A/B, tremolo) for comparing DI, built-in amp, NAM, and palm-mute banks while looping.
+- A plain synth voice as the default sound, so playback works before any samples load.
 
-## Deploy on Vercel
+## Notation
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Each cell holds one token. Strings are numbered 1 (top, highest pitch) to N (bottom, lowest).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Token | Meaning |
+| --- | --- |
+| `0`–`24` | Fret number, picked. |
+| `m0`, `m3` | Palm-muted chug on that fret. |
+| `x` | Unpitched dead chug. |
+| `*` | One repick of the preceding note on this slot. Repeat `*` cells on a 16th grid for tremolo picking. Works after `m` notes and `x` too. |
+| `=` | Hold the previous note out. |
+| `~` | Vibrato on the preceding note (also holds). |
+| `/7` | Slide up into fret 7. |
+| `\7` | Slide down into fret 7. |
+| `h7` | Hammer-on to 7 (legato, no pick attack). |
+| `p5` | Pull-off to 5. |
+| `t12` | Tap 12. |
+| `b` | Bend the preceding note up a whole step. |
+| `r` | Release the bend back down. |
+| `-` | Empty. |
+| `.` | (`write_notes` only) Leave this slot unchanged. |
+
+Chug riff: `m0 m0 m0 3 m0 m0 5 =`. Tremolo: `0 * * *`.
+
+## Running locally
+
+```sh
+npm install
+npm run dev     # http://localhost:3000
+npm test        # vitest: 25 tests over the pure scheduling/import layer
+```
+
+Songs and rig settings persist in `localStorage`; custom palm-mute samples and the loaded NAM model persist in IndexedDB.
+
+## Architecture
+
+| Path | Responsibility |
+| --- | --- |
+| `lib/model.ts` | Song and measure types, tuning presets, signature/grid helpers, `toAscii` export. |
+| `lib/importAscii.ts` | ASCII tab parser: systems, stride detection, dense runs, headers, repeats, warnings. |
+| `lib/schedule.ts` | Pure playback logic: cell grammar to articulation actions, slot timing, accents, repeat/loop position advance. No Web Audio; fully unit-testable in Node. |
+| `lib/sampler.ts` | Sampled guitar engine: per-string voices, articulations, amp chains, double tracking, custom PM banks, NAM routing. |
+| `lib/pmbank.ts` | IndexedDB persistence for custom palm-mute samples and small blobs (the `.nam` model). |
+| `lib/webmcp.ts` | WebMCP bridge: the 15 tool definitions, validation, serialized queue, commit waiting, registration, console shim. |
+| `lib/demo.ts` | Audition songs. |
+| `components/TabEditor.tsx` | The editor UI, lookahead scheduler, synth voice, rig panel, import/export dialogs, and the `WebMcpActions` surface handed to the bridge. |
+| `public/nam/` | NAM AudioWorklet processor plus the `@opendaw/nam-wasm` glue and binary. |
+| `public/samples/` | Bundled sample banks. |
+| `scripts/mine_chugs.py` | Stem-mining tool for building palm-mute banks. |
+
+## Credits and licenses
+
+Sample sources, as documented in `lib/sampler.ts`:
+
+- Sustained notes and unpitched dead hits: **Emilyguitar** by Karoryfer Samples, CC0. DI electric, f dynamic, 3 round robins, roots every 3 semitones. The "muted" noises in that library are unpitched string-muting sounds and are used here only for dead hits, never for pitched mutes.
+- Pitched palm mutes: **Pastabass "tagliatelle"** by Karoryfer Samples, royalty-free including redistribution. Squier Bass VI, flatwound, picked and muted; 2 velocity layers, 3 round robins.
+- Alternate palm-mute bank: **Metal GTX** mutes by Unreal Instruments, license-free with no credit required per the bundled terms. Served from `public/samples/gtx/` via its `manifest.json` and selected with the `gtx` palm-mute bank option.
+- **@opendaw/nam-wasm** (MIT), a WASM build of Steven Atkinson's NeuralAmpModelerCore v0.5.3 (MIT) with the A2 fast path. The NAM core license is included at `public/nam/LICENSE`.
+
+No NAM captures are bundled. Users load their own `.nam` files.
+
+## Roadmap
+
+- Let an agent load a NAM model by name from a user-approved set (today loading a `.nam` requires the human to pick a file).
+- Chord and multi-string helpers in `write_notes` (power chords, octaves) so agents write fewer lines per riff.
+- Drum and bass companion tracks synced to the same scheduler.
+- Export to MIDI and to Guitar Pro-compatible formats.
+- Wider sample coverage for the sustained-note bank, especially below B1 for 7- and 8-string tunings.
