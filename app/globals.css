@@ -854,5 +854,9 @@ kbd {
   .shell { grid-template-columns: 1fr; }
   .rack { position: static; height: auto; flex-direction: column; }
   .legend { display: none; }
-  .stage { padding: 18px 14px 50px; }
+  .stage { padding: 18px 14px 50px; overflow-x: hidden; }
+  /* a wide bar (16ths, triplets) scrolls inside its own card instead of
+     stretching the whole document past the viewport */
+  .sheet, .measure { min-width: 0; max-width: 100%; }
+  .measure { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
