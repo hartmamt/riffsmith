@@ -125,6 +125,10 @@ export class GuitarSampler {
   // "hybrid": the sampled pick attack EXCITES a physical string model that
   // then owns sustain, legato, bends, vibrato, palm damping and re-picking.
   engineMode: "samples" | "hybrid" = "samples";
+  // hybrid: play the sampled pick under the model (true) or let the model
+  // alone carry the attack (false) — the latter is for hearing what the
+  // model itself contributes
+  hybridSampleAttack = true;
   private stringNode: AudioWorkletNode | null = null;
   private stringOut: GainNode | null = null;
   private stringRouted: AudioNode | null = null;
@@ -920,9 +924,10 @@ export class GuitarSampler {
       const hold = art === "palm" ? 0.035 : 0.03;
       const end = art === "palm" ? 0.11 : 0.12;
       const g = v.env.gain;
-      g.setValueAtTime(Math.max(0.0001, opts.pickless ? 0.0001 : level), when);
-      if (opts.pickless) g.exponentialRampToValueAtTime(level, when + 0.015);
-      g.setValueAtTime(level, when + hold);
+      const lvlA = this.hybridSampleAttack ? level : 0.0001; // model-only: sampled pick muted
+      g.setValueAtTime(Math.max(0.0001, opts.pickless ? 0.0001 : lvlA), when);
+      if (opts.pickless) g.exponentialRampToValueAtTime(lvlA, when + 0.015);
+      g.setValueAtTime(lvlA, when + hold);
       g.exponentialRampToValueAtTime(0.0001, when + end);
       v.releaseAt = when + end;
     } else {
@@ -1320,6 +1325,11 @@ export class GuitarSampler {
 
   get hybridReady(): boolean { return !!this.stringNode; }
 
+  setHybridSampleAttack(on: boolean) {
+    this.hybridSampleAttack = on;
+    for (let si = 0; si < 8; si++) this.sset(si, SP.DIRECT, on ? 0 : 0.45);
+  }
+
   private routeString() {
     if (!this.stringOut) return;
     const d = this.dest();
@@ -1356,7 +1366,7 @@ export class GuitarSampler {
     this.sset(si, SP.PICKUP_HZ, 4500);
     this.sset(si, SP.PICKUP_Q, 1.2);
     this.sset(si, SP.TENSION, 4 + 6 * low);
-    this.sset(si, SP.DIRECT, 0);
+    this.sset(si, SP.DIRECT, this.hybridSampleAttack ? 0 : 0.45);
     this.sset(si, SP.VIB_RATE, 5.5);
     this.sset(si, SP.POL_DETUNE, 2.5);
     this.sset(si, SP.POL_COUPLE, 0.03);
@@ -1403,9 +1413,13 @@ export class GuitarSampler {
       params.push([SP.FREQ, f, 0]);
     }
     params.push([SP.VIB_DEPTH, 0, 0]);
-    // the sampled attack carries the first ~30 ms; the model fades in under it
-    params.push([SP.GAIN, 0, 0]);
-    this.sset(si, SP.GAIN, 1, 80, when + 0.02);
+    if (this.hybridSampleAttack) {
+      // the sampled attack carries the first ~30 ms; the model fades in under it
+      params.push([SP.GAIN, 0, 0]);
+      this.sset(si, SP.GAIN, 1, 80, when + 0.02);
+    } else {
+      params.push([SP.GAIN, 1, 0]);
+    }
     if (art === "palm") {
       // palm-pressure trajectory: lands early and hard, eases at the pick,
       // re-clamps to the grip over 50–140 ms

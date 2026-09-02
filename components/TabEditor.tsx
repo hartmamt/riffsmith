@@ -148,8 +148,16 @@ export default function TabEditor() {
     typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "old");
   const legacyRef = useRef(false);
   const [hybridEngine, setHybridEngine] = useState(() =>
-    typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "hybrid");
+    typeof window === "undefined" ? false : ["hybrid", "model"].includes(localStorage.getItem("gs.engine") ?? ""));
+  const [modelOnly, setModelOnly] = useState(() =>
+    typeof window === "undefined" ? false : localStorage.getItem("gs.engine") === "model");
   const hybridRef = useRef(false);
+  const modelOnlyRef = useRef(false);
+  const [hybridStatus, setHybridStatus] = useState<"off" | "loading" | "ready" | "unavailable">("off");
+  const armHybrid = (s: GuitarSampler) => {
+    setHybridStatus(s.hybridReady ? "ready" : "loading");
+    void s.enableHybrid().then((ok) => setHybridStatus(ok ? "ready" : "unavailable"));
+  };
   const [namStatus, setNamStatus] = useState<string | null>(null); // loaded model name or error
   const [namLibrary, setNamLibrary] = useState<string[]>([]); // every .nam the user has loaded (IDB)
   // captures shipped with the site (public/nam/models/manifest.json — optional, gitignored)
@@ -229,7 +237,8 @@ export default function TabEditor() {
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
       s.setNamInput(namInputRef.current);
-      if (hybridRef.current) { s.engineMode = "hybrid"; void s.enableHybrid(); }
+      s.hybridSampleAttack = !modelOnlyRef.current;
+      if (hybridRef.current) { s.engineMode = "hybrid"; armHybrid(s); }
       s.setLevel(levelRef.current);
       const cfg = chugCfgRef.current;
       s.setTight(cfg.tight);
@@ -322,13 +331,15 @@ export default function TabEditor() {
   useEffect(() => {
     legacyRef.current = legacyEngine;
     hybridRef.current = hybridEngine;
-    localStorage.setItem("gs.engine", legacyEngine ? "old" : hybridEngine ? "hybrid" : "new");
+    modelOnlyRef.current = modelOnly;
+    localStorage.setItem("gs.engine", legacyEngine ? "old" : modelOnly ? "model" : hybridEngine ? "hybrid" : "new");
     const smp = samplerRef.current;
     if (smp) {
       smp.engineMode = hybridEngine ? "hybrid" : "samples";
-      if (hybridEngine) void smp.enableHybrid();
+      smp.setHybridSampleAttack(!modelOnly);
+      if (hybridEngine) armHybrid(smp); else setHybridStatus("off");
     }
-  }, [legacyEngine, hybridEngine]);
+  }, [legacyEngine, hybridEngine, modelOnly]);
 
   // sections: labeled measure → range of bars until the next label
   const sections = useMemo(() => {
@@ -840,7 +851,8 @@ export default function TabEditor() {
       mute_grip: muteStr,
       picking,
       double_track: doubled,
-      engine: legacyEngine ? "old" : hybridEngine ? "hybrid" : "new",
+      engine: legacyEngine ? "old" : modelOnly ? "model" : hybridEngine ? "hybrid" : "new",
+      engine_status: hybridEngine ? hybridStatus : "n/a",
       cab: cabOn,
       pm_bank: pmSource,
       note_bank: noteBank,
@@ -870,7 +882,11 @@ export default function TabEditor() {
         setDoubled(patch.double_track);
         localStorage.setItem("gs.double", patch.double_track ? "1" : "0");
       }
-      if (patch.engine !== undefined) { setLegacyEngine(patch.engine === "old"); setHybridEngine(patch.engine === "hybrid"); }
+      if (patch.engine !== undefined) {
+        setLegacyEngine(patch.engine === "old");
+        setHybridEngine(patch.engine === "hybrid" || patch.engine === "model");
+        setModelOnly(patch.engine === "model");
+      }
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.cab !== undefined) {
@@ -1530,14 +1546,29 @@ export default function TabEditor() {
                 <span>engine</span>
                 <select
                   title="A/B the articulation engine: 'voices' = continuous sampled voices; 'string model' = the sampled attack excites a physical string (experimental); 'retrigger' = a sample per technique"
-                  value={legacyEngine ? "old" : hybridEngine ? "hybrid" : "new"}
-                  onChange={(e) => { setLegacyEngine(e.target.value === "old"); setHybridEngine(e.target.value === "hybrid"); }}
+                  value={legacyEngine ? "old" : modelOnly ? "model" : hybridEngine ? "hybrid" : "new"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLegacyEngine(v === "old");
+                    setHybridEngine(v === "hybrid" || v === "model");
+                    setModelOnly(v === "model");
+                  }}
                 >
                   <option value="new">new · voices</option>
                   <option value="hybrid">hybrid · string model</option>
+                  <option value="model">string model only (no sampled pick)</option>
                   <option value="old">old · retrigger</option>
                 </select>
               </div>
+              {hybridEngine && (
+                <div className="rig-row">
+                  <span>model</span>
+                  <span className={`led ${hybridStatus === "ready" ? "on" : ""}`} />
+                  <span style={{ fontSize: "0.72rem", color: hybridStatus === "unavailable" ? "var(--hot)" : "var(--bone-dim)" }}>
+                    {hybridStatus === "ready" ? "string model running" : hybridStatus === "loading" ? "loading…" : hybridStatus === "unavailable" ? "unavailable — playing samples" : "press play to load"}
+                  </span>
+                </div>
+              )}
             </section>
           )}
 

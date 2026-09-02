@@ -21,7 +21,8 @@ export type RigState = {
   mute_grip: number;
   picking: "alternate" | "down" | "up";
   double_track: boolean;
-  engine: "new" | "old" | "hybrid";
+  engine: "new" | "old" | "hybrid" | "model";
+  engine_status: string;
   cab: boolean;
   pm_bank: "bassvi" | "gtx" | "gtechs" | "custom";
   note_bank: "gtechs" | "fsbs";
@@ -544,7 +545,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "set_rig",
       description:
-        "Set amp/performance rig settings (any subset). tight 0-1: the boost pedal in front of the amp (low cut, mid hump, soft clip) — raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (through two extra capture instances when a NAM model is loaded). engine: 'new' = sampled voices, 'hybrid' = sampled attack exciting a physical string model (experimental), 'old' only for A/B comparison. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
+        "Set amp/performance rig settings (any subset). tight 0-1: the boost pedal in front of the amp (low cut, mid hump, soft clip) — raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (through two extra capture instances when a NAM model is loaded). engine: 'new' = sampled voices, 'hybrid' = sampled attack exciting a physical string model (experimental), 'model' = the string model alone with no sampled pick, 'old' only for A/B comparison. engine_status in get_rig says whether the model is actually running. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
       inputSchema: {
         type: "object",
         properties: {
@@ -553,7 +554,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           mute_grip: { type: "number", minimum: 0, maximum: 1 },
           picking: { type: "string", enum: ["alternate", "down", "up"] },
           double_track: { type: "boolean" },
-          engine: { type: "string", enum: ["new", "old", "hybrid"] },
+          engine: { type: "string", enum: ["new", "old", "hybrid", "model"] },
           player_rules: { type: "boolean", description: "performance humanization (tension glide, pick comb, velocity tone, micro-timing, chord rakes); false = plain sampler" },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["gtechs", "gtx", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (standard tuning), gtx = 7-string (drop tunings), bassvi, custom" },
@@ -582,7 +583,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (args[k] !== undefined) patch[k] = Boolean(args[k]);
         }
         if (args.engine !== undefined) {
-          if (!["new", "old", "hybrid"].includes(String(args.engine))) return fail("engine must be new, old, or hybrid.");
+          if (!["new", "old", "hybrid", "model"].includes(String(args.engine))) return fail("engine must be new, old, hybrid, or model.");
           patch.engine = args.engine;
         }
         a.setRig(patch as Parameters<WebMcpActions["setRig"]>[0]);
