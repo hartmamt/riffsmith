@@ -26,7 +26,7 @@ const PM_ROOTS = [37, 40, 43, 46, 49, 52, 55, 58, 61, 64, 67];
 const MUTE_IDS = [1, 2, 3, 4, 5]; // unpitched dead hits, high → low register
 const BASE = "/samples";
 
-type Articulation = "open" | "palm" | "dead";
+type Articulation = "open" | "palm" | "dead" | "pinch";
 
 // parameter ids of the wasm string engine (mirror of string-engine/src/lib.rs)
 const SP = {
@@ -88,6 +88,13 @@ export class GuitarSampler {
   private pmCustomRrs = new Map<string, number>();    // root_vel_stroke → rr count
   private repickTails = new Map<number, StringVoice[]>(); // overlapping tremolo strokes
   private fsbsRr = new Map<string, number>(); // `${root}${layer}` → round-robin count present
+  // Guitar-TECHS (CC BY 4.0): one LP-humbucker DI note per string×fret, plus
+  // pinch harmonics on frets 1-12. Keyed by pitch, each entry remembers its
+  // string (1 = high E … 6 = low E) so a note prefers the string it's tabbed on.
+  noteBank: "gtechs" | "fsbs" = "gtechs";
+  stringCount = 6; // of the song being played (string-aware picks need 6)
+  private gtNotes = new Map<number, { key: string; string: number; midi: number }[]>();
+  private gtPinch = new Map<number, { key: string; string: number; midi: number }[]>();
   // performance state (Phase 0 "player rules"): the pick's position drifts a
   // little from stroke to stroke, and the double-tracked take drifts in pitch
   // like a second tape machine (ADT) instead of sitting at a fixed offset
@@ -228,7 +235,22 @@ export class GuitarSampler {
         } catch {}
         await Promise.all(fsbs.map(load));
       };
-      this.loading = Promise.all([...urls.map(load), loadFsbs()])
+      const loadGt = async () => {
+        try {
+          const man = await fetch(`${BASE}/gtechs/manifest.json`).then((r) => (r.ok ? r.json() : null));
+          const jobs: [string, string][] = [];
+          for (const f of (man?.files ?? []) as { file: string; kind: string; string: number; midi: number }[]) {
+            if (f.kind !== "note" && f.kind !== "pinch") continue; // palm mutes load as a pm bank
+            const key = `${f.kind === "note" ? "g" : "gh"}${f.midi}_s${f.string}`;
+            const map = f.kind === "note" ? this.gtNotes : this.gtPinch;
+            if (!map.has(f.midi)) map.set(f.midi, []);
+            map.get(f.midi)!.push({ key, string: f.string, midi: f.midi });
+            jobs.push([key, `${BASE}/gtechs/${f.file}`]);
+          }
+          await Promise.all(jobs.map(load));
+        } catch {}
+      };
+      this.loading = Promise.all([...urls.map(load), loadFsbs(), loadGt()])
         .then(async () => {
           if (!this.buffers.has("f40_h_rr1")) await Promise.all(emilyNotes.map(load));
         })
@@ -512,9 +534,36 @@ export class GuitarSampler {
     return (n % count) + 1;
   }
 
-  // sustained-note sample for a pitch and pick strength: FreePats layer by
-  // velocity (accents 0.72-1.0 → soft below ~0.86, hard above), else Emily
-  private openBuffer(midi: number, velocity: number): { buffer: AudioBuffer | undefined; root: number } {
+  // Guitar-TECHS candidates for a pitch: exact pitch on the tabbed string
+  // first, then that string's neighbouring frets (±1 semitone, pitched — same
+  // timbre, real round robins), then any string. `tol` widens the search.
+  private gtCandidates(
+    map: Map<number, { key: string; string: number; midi: number }[]>, midi: number, tol: number, si?: number
+  ): { key: string; string: number; midi: number }[] {
+    const gtString = si !== undefined && this.stringCount === 6 ? si + 1 : undefined;
+    const near: { key: string; string: number; midi: number }[] = [];
+    for (let d = -tol; d <= tol; d++) for (const e of map.get(midi + d) ?? []) if (this.buffers.has(e.key)) near.push(e);
+    if (!near.length) return near;
+    const exact = near.filter((e) => e.midi === midi);
+    if (gtString !== undefined) {
+      const same = near.filter((e) => e.string === gtString);
+      if (same.some((e) => e.midi === midi)) return same.sort((a, b) => Math.abs(a.midi - midi) - Math.abs(b.midi - midi));
+    }
+    return exact.length ? exact : near.sort((a, b) => Math.abs(a.midi - midi) - Math.abs(b.midi - midi));
+  }
+
+  // sustained-note sample for a pitch and pick strength. Guitar-TECHS (one
+  // dynamic, string-aware) by default; FreePats picks its layer by velocity
+  // (accents 0.72-1.0 → soft below ~0.86, hard above); Emily as the fallback
+  private openBuffer(midi: number, velocity: number, si?: number): { buffer: AudioBuffer | undefined; root: number } {
+    if (this.noteBank === "gtechs" && this.gtNotes.size) {
+      const cands = this.gtCandidates(this.gtNotes, midi, 1, si);
+      if (cands.length) {
+        const c = cands[this.nextRr(`g${midi}_${si ?? "x"}`, cands.length) - 1];
+        const buffer = this.buffers.get(c.key);
+        if (buffer) return { buffer, root: c.midi };
+      }
+    }
     if (this.buffers.has("f40_h_rr1")) {
       const root = this.nearest(FSBS_ROOTS, midi);
       let layer: "h" | "s" = velocity >= 0.865 ? "h" : "s";
@@ -683,8 +732,20 @@ export class GuitarSampler {
       const picked = this.pickPmBuffer(midi, velocity);
       buffer = picked.buffer;
       sampleMidi = picked.root;
+    } else if (art === "pinch") {
+      // real pinch-harmonic recordings (frets 1-12); the squeal's overtone
+      // depends on where the thumb lands, so ±2 semitones of shift is fine
+      const cands = this.gtCandidates(this.gtPinch, midi, 2, si);
+      if (cands.length) {
+        const c = cands[this.nextRr(`gh${midi}`, cands.length) - 1];
+        buffer = this.buffers.get(c.key);
+        sampleMidi = c.midi;
+      } else {
+        const o = this.openBuffer(midi, velocity, si);
+        buffer = o.buffer; sampleMidi = o.root;
+      }
     } else {
-      const o = this.openBuffer(opts.glideFromMidi ?? midi, velocity);
+      const o = this.openBuffer(opts.glideFromMidi ?? midi, velocity, si);
       buffer = o.buffer;
       sampleMidi = o.root;
     }
@@ -694,7 +755,7 @@ export class GuitarSampler {
     // still plays for its first ~100 ms and crossfades into the model, so the
     // pick is the recording and only the ring-out is synthesized
     let attackOnly = false;
-    if (this.engineMode === "hybrid" && this.stringNode && !opts.isTwin && art !== "dead") {
+    if (this.engineMode === "hybrid" && this.stringNode && !opts.isTwin && art !== "dead" && art !== "pinch") {
       this.hybridPick(si, midi, when, art, velocity, stroke, buffer, sampleMidi, opts);
       attackOnly = true;
     }
@@ -781,6 +842,7 @@ export class GuitarSampler {
     // PM decay: mute pressure sets the base, the gap to the next hit caps it
     let ring: number;
     if (art === "dead") ring = 0.16;
+    else if (art === "pinch") ring = 1.6 + (opts.sustain ?? 0);
     else if (art === "palm") {
       const base = 0.16 + 0.3 * (1 - this.muteStrength);
       ring = opts.gap !== undefined ? Math.min(base, Math.max(0.09, opts.gap * 0.9)) : base;
@@ -824,7 +886,7 @@ export class GuitarSampler {
     // no early src.stop: the envelope gates it, so legato can extend the voice
     if (!opts.isTwin && !attackOnly) {
       this.voices.set(si, v);
-      if (opts.vibrato && art === "open") this.attachVibrato(v, when + (opts.glideDur ?? 0.1));
+      if (opts.vibrato && (art === "open" || art === "pinch")) this.attachVibrato(v, when + (opts.glideDur ?? 0.1));
       if (doubled) {
         // independent second take: own RR, own pick position, 2-6ms late,
         // its own velocity and a slow pitch drift (in shiftCents)
@@ -866,7 +928,7 @@ export class GuitarSampler {
       buffer = picked.buffer;
       sampleMidi = picked.root;
     } else {
-      const o = this.openBuffer(midi, velocity);
+      const o = this.openBuffer(midi, velocity, si);
       buffer = o.buffer;
       sampleMidi = o.root;
     }
@@ -938,7 +1000,7 @@ export class GuitarSampler {
           if (body.vibrato) body.vibrato.lfo.stop(when + 0.1);
         } catch {}
         const fresh = ctx.createBufferSource();
-        const { buffer: buf2, root } = this.openBuffer(midi, 0.9);
+        const { buffer: buf2, root } = this.openBuffer(midi, 0.9, si);
         if (buf2) {
           fresh.buffer = buf2;
           fresh.detune.value = (midi - root) * 100;

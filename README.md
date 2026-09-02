@@ -107,6 +107,7 @@ Each cell holds one token. Strings are numbered 1 (top, highest pitch) to N (bot
 | `h7` | Hammer-on to 7 (legato, no pick attack). |
 | `p5` | Pull-off to 5. |
 | `t12` | Tap 12. |
+| `^7` | Pinch harmonic on fret 7 (real recordings, frets 1–12). |
 | `b` | Bend the preceding note up a whole step. |
 | `r` | Release the bend back down. |
 | `-` | Empty. |
@@ -144,7 +145,8 @@ Songs and rig settings persist in `localStorage`; custom palm-mute samples and t
 
 Sample sources, as documented in `lib/sampler.ts`:
 
-- Sustained notes: **Electric Guitar FSBS (direct)** by the FreePats project, CC0. DI Fender electric, bridge pickup, standard tuning with a dropped low C, two pick dynamics (hard ×4 round robins, soft ×2), 48 kHz. Trimmed to 3.5 s and level-matched for RiffSmith (`public/samples/fsbs/NOTICE.txt`).
+- Sustained notes, palm mutes and pinch harmonics (LP humbucker, standard tuning): **Guitar-TECHS** (Pedroza et al., ICASSP 2025), player 1 direct-input channel, CC BY 4.0. One DI note per string and fret plus palm mutes on every position and pinch harmonics on frets 1–12, cut from the long recordings and level-matched for RiffSmith (`public/samples/gtechs/NOTICE.txt`). Notes are chosen string-aware, so a fret-5 A on the low E plays the low-E recording.
+- Alternative sustained notes (Fender single-coil, two dynamics): **Electric Guitar FSBS (direct)** by the FreePats project, CC0. DI Fender electric, bridge pickup, standard tuning with a dropped low C, two pick dynamics (hard ×4 round robins, soft ×2), 48 kHz. Trimmed to 3.5 s and level-matched for RiffSmith (`public/samples/fsbs/NOTICE.txt`).
 - Unpitched dead hits (and fallback sustains): **Emilyguitar** by Karoryfer Samples, CC0. The "muted" noises in that library are unpitched string-muting sounds and are used here only for dead hits, never for pitched mutes.
 - Pitched palm mutes: **Pastabass "tagliatelle"** by Karoryfer Samples, royalty-free including redistribution. Squier Bass VI, flatwound, picked and muted; 2 velocity layers, 3 round robins.
 - Alternate palm-mute bank: **Metal GTX** mutes by Unreal Instruments, license-free with no credit required per the bundled terms. Served from `public/samples/gtx/` via its `manifest.json` and selected with the `gtx` palm-mute bank option.

@@ -289,3 +289,31 @@ describe("helpers", () => {
     expect(vibratoAfter(s, LOW, 0, 3)).toBe(true);
   });
 });
+
+describe("pinch harmonics (^fret)", () => {
+  const mk = (): Song => {
+    const m = emptyMeasure(6, "4/4", 2);
+    m.cols[0][5] = "0";
+    m.cols[1][5] = "^7";
+    m.cols[2][5] = "=";
+    m.cols[3][5] = "~";
+    return { id: "p", title: "P", artist: "", bpm: 120, tuning: [...TUNING_PRESETS["Drop B"]], measures: [m], updatedAt: 0 };
+  };
+  it("schedules a picked pinch action at the fretted pitch, holding and vibrato applied", () => {
+    const s = mk();
+    const a = columnActions(s, 0, 1);
+    expect(a).toHaveLength(1);
+    expect(a[0].kind).toBe("pinch");
+    expect(a[0].midi).toBe(35 + 7);
+    expect(a[0].vibrato).toBe(true);
+    expect(a[0].sustain).toBeGreaterThan(0);
+  });
+  it("round-trips through ASCII export and import", () => {
+    const s = mk();
+    const res = importAscii(toAscii(s));
+    expect("error" in res).toBe(false);
+    if ("error" in res) return;
+    expect(res.song.measures[0].cols[1][5]).toBe("^7");
+    expect(res.song.measures[0].cols[0][5]).toBe("0");
+  });
+});

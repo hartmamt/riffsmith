@@ -17,6 +17,25 @@ import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, sa
 const STORE_KEY = "guitarscrobble.songs.v1";
 
 type BundledNam = { name: string; url: string; credit?: string; creditUrl?: string };
+
+// Guitar-TECHS palm mutes as a pm bank: one LP-humbucker take per string×fret;
+// takes of the same pitch on different strings become the round robins
+async function loadGtechsPm(s: GuitarSampler): Promise<number> {
+  try {
+    const man = await fetch("/samples/gtechs/manifest.json").then((r) => (r.ok ? r.json() : null));
+    const seen = new Map<number, number>();
+    const files = ((man?.files ?? []) as { file: string; kind: string; midi: number }[])
+      .filter((f) => f.kind === "palm")
+      .map((f) => {
+        const rr = (seen.get(f.midi) ?? 0) + 1;
+        seen.set(f.midi, rr);
+        return { midi: f.midi, vel: 3, rr, url: `/samples/gtechs/${f.file}` };
+      });
+    return files.length ? await s.loadPmFromUrls(files) : 0;
+  } catch {
+    return 0;
+  }
+}
 let bundledNamCache: Promise<BundledNam[]> | null = null;
 function fetchBundledNam(): Promise<BundledNam[]> {
   if (!bundledNamCache) {
@@ -32,7 +51,7 @@ const TECHNIQUES: [string, string][] = [
   ["x", "dead chug"], ["~", "vibrato (holds)"],
   ["=", "hold note out"], ["*", "repick prev note (tremolo)"],
 ];
-const PREFIX_KEYS = ["/", "\\", "h", "p", "t", "m"];
+const PREFIX_KEYS = ["/", "\\", "h", "p", "t", "m", "^"];
 
 type Sel = { m: number; c: number; s: number };
 
@@ -167,9 +186,13 @@ export default function TabEditor() {
   const [doubled, setDoubled] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.double") === "1");
   const [pmBankInfo, setPmBankInfo] = useState<string | null>(null);
-  const [pmSource, setPmSource] = useState<"bassvi" | "gtx" | "custom">(() =>
-    typeof window === "undefined" ? "bassvi"
-      : (localStorage.getItem("gs.pmSource") as "bassvi" | "gtx" | "custom" | null) ?? "gtx");
+  const [pmSource, setPmSource] = useState<"bassvi" | "gtx" | "gtechs" | "custom">(() =>
+    typeof window === "undefined" ? "gtechs"
+      : (localStorage.getItem("gs.pmSource") as "bassvi" | "gtx" | "gtechs" | "custom" | null) ?? "gtechs");
+  const [noteBank, setNoteBankState] = useState<"gtechs" | "fsbs">(() =>
+    typeof window === "undefined" ? "gtechs" : ((localStorage.getItem("gs.noteBank") as "gtechs" | "fsbs" | null) ?? "gtechs"));
+  const noteBankRef = useRef<"gtechs" | "fsbs">("gtechs");
+  noteBankRef.current = noteBank;
   const pmFileRef = useRef<HTMLInputElement>(null);
   const chugCfgRef = useRef({ tight, muteStr, picking, doubled });
   chugCfgRef.current = { tight, muteStr, picking, doubled };
@@ -187,6 +210,7 @@ export default function TabEditor() {
     if (!samplerRef.current) {
       const s = new GuitarSampler(audioRef.current);
       samplerRef.current = s;
+      s.noteBank = noteBankRef.current;
       if (hybridRef.current) { s.engineMode = "hybrid"; void s.enableHybrid(); }
       s.setLevel(levelRef.current);
       const cfg = chugCfgRef.current;
@@ -199,8 +223,11 @@ export default function TabEditor() {
         try {
           // default chug source is the real 7-string mutes (Metal GTX); the
           // flatwound Bass VI bank stays available as a choice
-          const src = localStorage.getItem("gs.pmSource") ?? "gtx";
-          if (src === "custom") {
+          const src = localStorage.getItem("gs.pmSource") ?? "gtechs";
+          if (src === "gtechs") {
+            const n = await loadGtechsPm(s);
+            if (n) { setPmSource("gtechs"); setPmBankInfo(`LP mutes ×${n}`); }
+          } else if (src === "custom") {
             const recs = await loadPmSamples();
             if (recs.length) {
               const n = await s.loadCustomPm(recs);
@@ -346,7 +373,7 @@ export default function TabEditor() {
 
       if (/^\d$/.test(e.key)) {
         let value: string;
-        const prefixed = cur.match(/^([/\\hptm])(\d{0,2})$/);
+        const prefixed = cur.match(/^([/\\hptm^])(\d{0,2})$/);
         if (prefixed) {
           // completing a slide/hammer/pull/tap note: prefix + digits
           const frets = prefixed[2] + e.key;
@@ -479,6 +506,7 @@ export default function TabEditor() {
       const sampler = ensureSampler();
       sampler.diMode = sound === "guitar-di";
       sampler.resetPickDirection(); // phrase boundary: hand starts on a downstroke
+      sampler.stringCount = songRef.current.tuning.length;
       if (!sampler.loaded) {
         sampler.ready().then(() => playRef.current(start, end));
         return;
@@ -502,6 +530,7 @@ export default function TabEditor() {
           break;
         case "palm": sampler.pickNote(a.si, a.midi, when, { articulation: "palm" }); break;
         case "dead": sampler.pickNote(a.si, a.midi, when, { articulation: "dead" }); break;
+        case "pinch": sampler.pickNote(a.si, a.midi, when, { articulation: "pinch", sustain: a.sustain, vibrato: a.vibrato }); break;
         case "repick": {
           const picks = Math.max(2, Math.min(4, Math.round(sd / 0.07)));
           for (let k = 0; k < picks; k++) {
@@ -548,6 +577,9 @@ export default function TabEditor() {
           case "dead":
             sampler.pickNote(a.si, a.midi, t, { articulation: "dead", velocity: a.velocity, stroke: chord?.stroke });
             break;
+          case "pinch":
+            sampler.pickNote(a.si, a.midi, t, { articulation: "pinch", velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
+            break;
           case "repick":
             // overlapping stroke — the ringing body continues underneath
             sampler.repickNote(a.si, a.midi, t, {
@@ -578,6 +610,9 @@ export default function TabEditor() {
         case "palm": case "dead":
           pluck(midiToFreq(a.midi), when, true);
           break;
+        case "pinch":
+          pluck(midiToFreq(a.midi + 19), when, false, a.sustain, { vibrato: a.vibrato }); // ~ the 3rd harmonic
+          break;
         case "repick":
           pluck(midiToFreq(a.midi), when, a.sourceKind !== "pick", 0);
           break;
@@ -601,7 +636,7 @@ export default function TabEditor() {
         const acts = columnActions(s, pos.m, pos.c);
         const smp = samplerRef.current;
         const strumming = (s.sound === "guitar" || s.sound === "guitar-di") && smp?.loaded && !legacyRef.current
-          ? acts.filter((a) => a.kind === "pick" || a.kind === "palm" || a.kind === "dead")
+          ? acts.filter((a) => a.kind === "pick" || a.kind === "palm" || a.kind === "dead" || a.kind === "pinch")
           : [];
         if (smp && strumming.length >= 2) {
           // a chord is ONE stroke: pick the direction once, then rake across
@@ -689,10 +724,16 @@ export default function TabEditor() {
     }));
 
   // switch the palm-mute sample bank (shared by the rig UI and WebMCP)
-  const switchPmBank = useCallback(async (v: "bassvi" | "gtx" | "custom"): Promise<string> => {
+  const switchPmBank = useCallback(async (v: "bassvi" | "gtx" | "gtechs" | "custom"): Promise<string> => {
     const s = ensureSampler();
     await s.ready();
     localStorage.setItem("gs.pmSource", v);
+    if (v === "gtechs") {
+      const n = await loadGtechsPm(s);
+      if (n) { setPmSource("gtechs"); setPmBankInfo(`LP mutes ×${n}`); return `LP humbucker palm mutes, Guitar-TECHS (${n} samples)`; }
+      setPmBankInfo("✕ Guitar-TECHS bank not available");
+      return "Guitar-TECHS bank not available";
+    }
     if (v === "bassvi") {
       s.clearCustomPm();
       setPmSource("bassvi");
@@ -725,6 +766,13 @@ export default function TabEditor() {
     pmFileRef.current?.click();
     return "no custom bank stored — file picker opened for the user";
   }, [ensureSampler]);
+
+  const setNoteBank = useCallback(async (v: "gtechs" | "fsbs"): Promise<string> => {
+    setNoteBankState(v);
+    localStorage.setItem("gs.noteBank", v);
+    if (samplerRef.current) samplerRef.current.noteBank = v;
+    return v === "gtechs" ? "LP humbucker (Guitar-TECHS)" : "Fender single-coil (FreePats)";
+  }, []);
 
   // Switch the NAM capture among the models already stored in this browser
   // (or back to the built-in amp). Adding a new file still needs the picker.
@@ -776,6 +824,7 @@ export default function TabEditor() {
       engine: legacyEngine ? "old" : hybridEngine ? "hybrid" : "new",
       cab: cabOn,
       pm_bank: pmSource,
+      note_bank: noteBank,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
@@ -809,6 +858,7 @@ export default function TabEditor() {
       if (patch.loop !== undefined) setLoopMode(patch.loop);
     },
     switchPmBank,
+    setNoteBank,
     selectNamModel,
   };
   // the ref above now reflects this render's state — release any tool call
@@ -992,6 +1042,7 @@ export default function TabEditor() {
             <li><kbd>h</kbd>+fret hammer-on</li>
             <li><kbd>p</kbd>+fret pull-off</li>
             <li><kbd>t</kbd>+fret tap</li>
+            <li><kbd>^</kbd>+fret pinch harmonic</li>
             <li><kbd>m</kbd>+fret palm-muted chug</li>
           </ul>
         </div>
@@ -1210,6 +1261,19 @@ export default function TabEditor() {
                 <option value="guitar-di">guitar DI (clean)</option>
               </select>
             </div>
+            {(song.sound ?? "synth") !== "synth" && (
+              <div className="rig-row">
+                <span>guitar</span>
+                <select
+                  value={noteBank}
+                  title="which DI recordings play sustained notes: Guitar-TECHS LP humbucker (string-aware, one dynamic) or FreePats Fender single-coil (two dynamics)"
+                  onChange={(e) => { void setNoteBank(e.target.value as "gtechs" | "fsbs"); }}
+                >
+                  <option value="gtechs">LP humbucker · Guitar-TECHS</option>
+                  <option value="fsbs">Fender · FreePats</option>
+                </select>
+              </div>
+            )}
             {(song.sound ?? "synth") === "guitar" && (
               <>
                 <div className="rig-row">
@@ -1335,10 +1399,11 @@ export default function TabEditor() {
                 <select
                   value={pmSource}
                   title="palm-mute sample source; 'custom import…' loads your own DI recordings (b1_v3_rr1.wav naming)"
-                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtx" | "custom"); }}
+                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtx" | "gtechs" | "custom"); }}
                 >
+                  <option value="gtechs">LP humbucker · standard</option>
+                  <option value="gtx">Metal GTX · 7-string</option>
                   <option value="bassvi">bass VI (built-in)</option>
-                  <option value="gtx">Metal GTX</option>
                   <option value="custom">custom import…</option>
                 </select>
               </div>

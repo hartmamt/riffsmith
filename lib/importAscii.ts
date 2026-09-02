@@ -17,7 +17,7 @@ import { GRID_VALUES, Measure, Song, newSong, sigBeats } from "./model";
 const TAB_LINE = /^\s*([A-Ga-g][#b]?)\s*\|(.*)$/;
 // prefixed techniques ("m3", "/7", "h12") parse as single tokens so palm
 // mutes and slide/hammer targets survive a round trip
-const TOKEN = /(\d{1,2}[/\\hpt]\d{1,2})|([/\\hptm]\d{1,2})|(\d{1,2})|([hpbrstx~/\\=*])/g;
+const TOKEN = /(\d{1,2}[/\\hpt]\d{1,2})|([/\\hptm^]\d{1,2})|(\d{1,2})|([hpbrstx~/\\=*])/g;
 
 type System = { labels: string[]; rows: string[]; header: string | null; sig: string | null };
 
@@ -153,7 +153,7 @@ function parseSystemMeasures(
     const offset = tokens.length ? Math.min(...tokens.map((t) => t.pos)) % stride : 1;
     const nCols = Math.max(1, Math.ceil((width - offset) / stride));
     const cols = Array.from({ length: nCols }, () => Array(strings).fill(""));
-    const isNote = (v: string) => /^[/\\hptm]?\d/.test(v);
+    const isNote = (v: string) => /^[/\\hptm^]?\d/.test(v);
     let outOfRange = 0;
     for (const t of tokens) {
       const fretMatch = t.v.match(/(\d{1,2})/);

@@ -23,7 +23,8 @@ export type RigState = {
   double_track: boolean;
   engine: "new" | "old" | "hybrid";
   cab: boolean;
-  pm_bank: "bassvi" | "gtx" | "custom";
+  pm_bank: "bassvi" | "gtx" | "gtechs" | "custom";
+  note_bank: "gtechs" | "fsbs";
   nam_model: string | null;
   nam_models: string[];
   loop: boolean;
@@ -38,8 +39,9 @@ export type WebMcpActions = {
   stop: () => void;
   setLoopMode: (on: boolean) => void;
   rig: RigState;
-  setRig: (patch: Partial<Omit<RigState, "nam_model" | "nam_models" | "pm_bank">>) => void;
-  switchPmBank: (v: "bassvi" | "gtx" | "custom") => Promise<string>;
+  setRig: (patch: Partial<Omit<RigState, "nam_model" | "nam_models" | "pm_bank" | "note_bank">>) => void;
+  switchPmBank: (v: "bassvi" | "gtx" | "gtechs" | "custom") => Promise<string>;
+  setNoteBank: (v: "gtechs" | "fsbs") => Promise<string>;
   selectNamModel: (name: string | null) => Promise<string>;
 };
 
@@ -51,7 +53,7 @@ type ToolDef = {
   execute: (args: Record<string, unknown>) => Promise<unknown>;
 };
 
-const NOTATION = `Cell tokens: fret numbers 0-24; "m0"/"m3" palm-muted chug on that fret; "x" unpitched dead chug; "*" one repick of the preceding note on this slot — repeat "*" cells on a 16th grid for 16th-note tremolo picking (works after m-notes and x too); "=" hold previous note out; "~" vibrato on the preceding note (also holds); "/7" slide up into fret 7; "\\7" slide down into fret 7; "h7" hammer-on to 7, "p5" pull-off to 5, "t12" tap 12 (legato, no pick attack); "b" bends the preceding note up a step, "r" releases it back; "-" empty. Chug riff example: "m0 m0 m0 3 m0 m0 5 =". Tremolo example: "0 * * *".`;
+const NOTATION = `Cell tokens: fret numbers 0-24; "m0"/"m3" palm-muted chug on that fret; "x" unpitched dead chug; "*" one repick of the preceding note on this slot — repeat "*" cells on a 16th grid for 16th-note tremolo picking (works after m-notes and x too); "=" hold previous note out; "~" vibrato on the preceding note (also holds); "/7" slide up into fret 7; "\\7" slide down into fret 7; "h7" hammer-on to 7, "p5" pull-off to 5, "t12" tap 12 (legato, no pick attack); "^7" pinch harmonic on fret 7 (picked squeal, real recordings on frets 1-12); "b" bends the preceding note up a step, "r" releases it back; "-" empty. Chug riff example: "m0 m0 m0 3 m0 m0 5 =". Tremolo example: "0 * * *".`;
 
 function ok(message: string, extra: Record<string, unknown> = {}) {
   return { ok: true, message, ...extra };
@@ -476,7 +478,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         if (!rawWrites.length) return fail("No writes given.");
 
         // validate everything first — the batch applies atomically or not at all
-        const valid = /^(\.|-|\d{1,2}|[/\\hptm]\d{1,2}|[hpbrtx~=*/\\])$/;
+        const valid = /^(\.|-|\d{1,2}|[/\\hptm^]\d{1,2}|[hpbrtx~=*/\\])$/;
         const parsed: { mi: number; si: number; tokens: string[] }[] = [];
         for (const w of rawWrites) {
           const mi = barIndex(s, w.bar);
@@ -532,7 +534,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "get_rig",
       description:
-        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
+        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok("Current rig", { ...get().rig }),
@@ -551,7 +553,8 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           double_track: { type: "boolean" },
           engine: { type: "string", enum: ["new", "old", "hybrid"] },
           cab: { type: "boolean" },
-          pm_bank: { type: "string", enum: ["bassvi", "gtx", "custom"] },
+          pm_bank: { type: "string", enum: ["gtechs", "gtx", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (standard tuning), gtx = 7-string (drop tunings), bassvi, custom" },
+          note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
           nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
           loop: { type: "boolean" },
         },
@@ -581,8 +584,13 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         a.setRig(patch as Parameters<WebMcpActions["setRig"]>[0]);
         let bankNote: string | undefined;
         if (args.pm_bank !== undefined) {
-          if (!["bassvi", "gtx", "custom"].includes(String(args.pm_bank))) return fail("pm_bank must be bassvi, gtx, or custom.");
-          bankNote = await a.switchPmBank(args.pm_bank as "bassvi" | "gtx" | "custom");
+          if (!["bassvi", "gtx", "gtechs", "custom"].includes(String(args.pm_bank))) return fail("pm_bank must be gtechs, gtx, bassvi, or custom.");
+          bankNote = await a.switchPmBank(args.pm_bank as "bassvi" | "gtx" | "gtechs" | "custom");
+        }
+        let noteNote: string | undefined;
+        if (args.note_bank !== undefined) {
+          if (!["gtechs", "fsbs"].includes(String(args.note_bank))) return fail("note_bank must be gtechs or fsbs.");
+          noteNote = await a.setNoteBank(args.note_bank as "gtechs" | "fsbs");
         }
         let namNote: string | undefined;
         if (args.nam_model !== undefined) {
@@ -593,7 +601,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
             return fail(`nam_model: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
-        return ok("Rig updated.", { applied: { ...patch, ...(bankNote ? { pm_bank: bankNote } : {}), ...(namNote ? { nam_model: namNote } : {}) } });
+        return ok("Rig updated.", { applied: { ...patch, ...(bankNote ? { pm_bank: bankNote } : {}), ...(noteNote ? { note_bank: noteNote } : {}), ...(namNote ? { nam_model: namNote } : {}) } });
       },
     },
     {

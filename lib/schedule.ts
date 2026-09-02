@@ -10,6 +10,7 @@ export type ActionKind =
   | "palm"    // pitched palm mute (m3)
   | "dead"    // unpitched dead chug (x)
   | "hammer" | "pull" | "tap" // legato: continue the ringing voice, no pick
+  | "pinch" // pinch harmonic: a picked squeal on that fret
   | "slide"   // continuous pitch glide into the target
   | "bend"    // bend the ringing note up a whole step
   | "release" // release the bend back down
@@ -57,7 +58,7 @@ export function accentAt(song: Song, m: number, c: number): number {
 const isSlideMark = (v: string) => v === "/" || v === "\\";
 
 export function fretOf(v: string | null | undefined): number | null {
-  const fm = v?.match(/^[/\\hptm]?(\d{1,2})$/);
+  const fm = v?.match(/^[/\\hptm^]?(\d{1,2})$/);
   return fm ? parseInt(fm[1], 10) : null;
 }
 
@@ -186,6 +187,8 @@ export function columnActions(song: Song, m: number, c: number): NoteAction[] {
         fromMidi: src && src.fret >= 0 ? base + src.fret : undefined,
         sustain, vibrato, velocity,
       });
+    } else if (/^\^\d{1,2}$/.test(v)) {
+      out.push({ si, kind: "pinch", midi: base + fretOf(v)!, sustain, vibrato, velocity });
     } else if (/^m\d{1,2}$/.test(v)) {
       out.push({
         si, kind: "palm", midi: base + fretOf(v)!, sustain: 0, vibrato: false, velocity,
