@@ -206,6 +206,14 @@ export default function TabEditor() {
   const rulesRef = useRef(true);
   const [showAdvanced, setShowAdvanced] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.advanced") === "1");
+  const [ring, setRingState] = useState(() =>
+    typeof window === "undefined" ? 1.1 : parseFloat(localStorage.getItem("gs.ring") ?? "1.1"));
+  const ringRef = useRef(1.1);
+  const setRing = (v: number) => { const x = Math.max(0.3, Math.min(3.2, v)); setRingState(x); localStorage.setItem("gs.ring", String(x)); };
+  useEffect(() => {
+    ringRef.current = ring;
+    if (samplerRef.current) samplerRef.current.ring = ring;
+  }, [ring]);
   const [feedback, setFeedback] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.feedback") === "1");
   const feedbackRef = useRef(false);
@@ -273,6 +281,7 @@ export default function TabEditor() {
       s.playerRules = rulesRef.current;
       s.legatoLandings = landingsRef.current;
       s.feedback = feedbackRef.current;
+      s.ring = ringRef.current;
       s.bassRig = bassRigRef.current;
       s.setNamInput(namInputRef.current);
       s.setRoom(roomRef.current);
@@ -873,6 +882,7 @@ export default function TabEditor() {
       player_rules: playerRules,
       legato_landings: landings,
       feedback,
+      ring,
       bass_rig: bassRig,
       nam_input: namInput,
       room,
@@ -908,6 +918,7 @@ export default function TabEditor() {
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
       if (patch.legato_landings !== undefined) setLandings(patch.legato_landings);
       if (patch.feedback !== undefined) setFeedback(patch.feedback);
+      if (patch.ring !== undefined) setRing(patch.ring);
       if (patch.bass_rig !== undefined) setBassRig(patch.bass_rig);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.room !== undefined) setRoom(Math.max(0, Math.min(1, patch.room)));
@@ -1089,6 +1100,7 @@ export default function TabEditor() {
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
                 setTight(0); localStorage.setItem("gs.tight", "0");
+                setRing(3.0);
                 if (bundledNam.some((b) => /clean/i.test(b.name))) void selectNamModel(bundledNam.find((b) => /clean/i.test(b.name))!.name);
               }}
             >
@@ -1608,6 +1620,16 @@ export default function TabEditor() {
                 >
                   <span className="rig-switch-knob" />
                 </button>
+              </div>
+              <div className="rig-slider">
+                <span>ring</span>
+                <input
+                  aria-label="ring"
+                  className="level-slider" type="range" min={0.3} max={3.2} step={0.1}
+                  value={ring}
+                  title="how long a picked note rings before it fades: 1.1 s keeps riffs tight; 3 s lets clean arpeggios and chords ring like the string does"
+                  onChange={(e) => setRing(parseFloat(e.target.value))}
+                />
               </div>
               <div className="rig-row">
                 <span>feedback</span>

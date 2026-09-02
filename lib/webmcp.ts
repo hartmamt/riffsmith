@@ -29,6 +29,7 @@ export type RigState = {
   player_rules: boolean;
   legato_landings: boolean;
   feedback: boolean;
+  ring: number;
   bass_rig: "bass" | "guitar";
   nam_input: number;
   room: number;
@@ -546,7 +547,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "get_rig",
       description:
-        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), feedback (amp feedback swell on long held notes), nam_input (DI level into the capture), room (0-1 amount of the small room around the cab), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
+        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), feedback (amp feedback swell on long held notes), ring (seconds a picked note rings), nam_input (DI level into the capture), room (0-1 amount of the small room around the cab), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok("Current rig", { ...get().rig }),
@@ -567,6 +568,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           player_rules: { type: "boolean", description: "performance humanization (tension glide, pick comb, velocity tone, micro-timing, chord rakes); false = plain sampler" },
           legato_landings: { type: "boolean", description: "hand legato/bend/slide landings over to a real recording of the target pitch (true) or keep the resampled voice (false)" },
           feedback: { type: "boolean", description: "notes held over ~1.3 s (with = or ~) swell into amp feedback on their overtone; off by default" },
+          ring: { type: "number", minimum: 0.3, maximum: 3.2, description: "seconds a plain picked note rings before it fades (default 1.1, sequencer-tight for riffs; 2.5-3.2 for clean arpeggios and let-ring parts). \"=\" always extends a note regardless" },
           bass_rig: { type: "string", enum: ["bass", "guitar"], description: "for bass tunings: 'bass' = its own clean-to-gritty amp (tight = drive), 'guitar' = through the guitar rig/capture for distorted bass" },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["gtechs", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (pitched down for drop tunings), bassvi = built-in flatwound Bass VI, custom = the user's imported bank" },
@@ -581,7 +583,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
       execute: async (args) => {
         const a = get();
         const patch: Record<string, unknown> = {};
-        for (const k of ["tight", "volume", "mute_grip", "nam_input", "room"] as const) {
+        for (const k of ["tight", "volume", "mute_grip", "nam_input", "room", "ring"] as const) {
           if (args[k] !== undefined) {
             const v = Number(args[k]);
             if (!isFinite(v)) return fail(`${k} must be a number.`);

@@ -159,6 +159,9 @@ export class GuitarSampler {
   // alone carry the attack (false) — the latter is for hearing what the
   // model itself contributes
   hybridSampleAttack = true;
+  // how long a plain picked note rings before it fades (seconds). 1.1 keeps
+  // riffs sequencer-tight; a clean channel wants the string's natural 3 s.
+  ring = 1.1;
   private stringNode: AudioWorkletNode | null = null;
   private stringOut: GainNode | null = null;
   private stringRouted: AudioNode | null = null;
@@ -1381,7 +1384,7 @@ export class GuitarSampler {
       const base = 0.16 + 0.3 * (1 - this.muteStrength);
       ring = opts.gap !== undefined ? Math.min(base, Math.max(0.09, opts.gap * 0.9)) : base;
     } else {
-      ring = 1.1 + (opts.sustain ?? 0) + (opts.glideDur ?? 0);
+      ring = Math.max(0.3, Math.min(3.2, this.ring)) + (opts.sustain ?? 0) + (opts.glideDur ?? 0);
     }
 
     // down-shifted PM hits get the sample's UNSHIFTED first 16ms layered on
