@@ -162,7 +162,7 @@ body::before {
   font-size: 0.75rem;
   padding: 6px 8px;
 }
-.rig-row select.rig-model { max-width: none; }
+.rig-row select.rig-model { max-width: none; flex: 1 1 auto; min-width: 0; width: 100%; }
 .nam-credit { display: block; font-size: 0.65rem; color: var(--bone-faint); text-decoration: none; margin: -2px 0 6px; }
 .nam-credit:hover { color: var(--amber-dim); }
 .rig-model.loaded {
