@@ -131,6 +131,8 @@ export class GuitarSampler {
   private bassLoading: Promise<void> | null = null;
   // a bass has its own amp: a guitar capture turns bass DI into fuzz
   private bassAmp: { input: GainNode; drive: GainNode; post: GainNode } | null = null;
+  // where bass goes: its own amp (clean to gritty) or the guitar rig (dirty)
+  bassRig: "bass" | "guitar" = "bass";
   stringCount = 6; // of the song being played (string-aware picks need 6)
   private gtNotes = new Map<number, { key: string; string: number; midi: number }[]>();
   private gtPinch = new Map<number, { key: string; string: number; midi: number }[]>();
@@ -470,14 +472,14 @@ export class GuitarSampler {
   // the L/R take destinations for the active amp: capture instances when a
   // NAM model is loaded, else the built-in chains
   private twinBuses(): { l: AudioNode; r: AudioNode } | null {
-    if (this.instrument === "bass") return null;
+    if (this.instrument === "bass" && this.bassRig === "bass") return null;
     if (this.namModelName) return this.namBusL && this.namBusR ? { l: this.namBusL, r: this.namBusR } : null;
     return this.busL && this.busR ? { l: this.busL, r: this.busR } : null;
   }
 
   private dest(): AudioNode {
     if (this.diMode) return this.diBus!;
-    if (this.instrument === "bass") return this.ensureBassAmp().input;
+    if (this.instrument === "bass" && this.bassRig === "bass") return this.ensureBassAmp().input;
     return this.ampIn!;
   }
 
@@ -1020,8 +1022,22 @@ export class GuitarSampler {
     let buffer: AudioBuffer | undefined;
     let sampleMidi = midi;
     if (art === "dead") {
-      const id = midi < 45 ? 5 : midi < 52 ? 4 : midi < 60 ? 3 : midi < 68 ? 2 : 1;
-      buffer = this.buffers.get(`m${id}_rr${this.nextRr(`m${id}`, 3)}`);
+      // a dead note is a choked pluck: the real note, dark and over in ~80 ms,
+      // with a whisper of string-muting noise on guitar (the old unpitched
+      // noise samples alone were a percussive click through an amp)
+      const o = this.openBuffer(midi, velocity, si);
+      buffer = o.buffer; sampleMidi = o.root;
+      if (this.instrument !== "bass" && !opts.isTwin) {
+        const id = midi < 45 ? 5 : midi < 52 ? 4 : midi < 60 ? 3 : midi < 68 ? 2 : 1;
+        const nb = this.buffers.get(`m${id}_rr${this.nextRr(`m${id}`, 3)}`);
+        if (nb) {
+          const ns = ctx.createBufferSource(); ns.buffer = nb;
+          const nl = ctx.createBiquadFilter(); nl.type = "lowpass"; nl.frequency.value = 3500;
+          const ng = ctx.createGain(); ng.gain.setValueAtTime(0.22 * (0.55 + 0.45 * velocity), when);
+          ng.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
+          ns.connect(nl).connect(ng).connect(this.dest()); ns.start(when); ns.stop(when + 0.08);
+        }
+      }
     } else if (art === "palm" && this.instrument === "bass" && this.bassNotes.size) {
       // no recorded bass mutes: the bass note itself under the palm envelope
       const o = this.openBuffer(midi, velocity, si);
@@ -1089,7 +1105,7 @@ export class GuitarSampler {
       src.detune.setValueAtTime((opts.glideFromMidi - sampleMidi) * 100, when);
       src.detune.linearRampToValueAtTime(shiftCents, when + opts.glideDur);
       if (!opts.isTwin && art === "open") this.slideSqueak(when, opts.glideFromMidi, midi, opts.glideDur);
-    } else if (art !== "dead") {
+    } else {
       // tension glide: start sharp, settle onto the pitch as the string's
       // energy decays (≈180ms open, ≈120ms palm). Later legato/bend automation
       // overrides this with an explicit value, so nothing accumulates.
@@ -1138,6 +1154,11 @@ export class GuitarSampler {
       tone.frequency.exponentialRampToValueAtTime(endHz, when + 0.008 + closeS);
       env.connect(tone);
       out = tone;
+    } else if (art === "dead") {
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass"; tone.frequency.value = 650; tone.Q.value = 0.7;
+      env.connect(tone);
+      out = tone;
     } else if (art === "open") {
       // dynamic-level lowpass (Jaffe & Smith): softer picks are darker
       const tone = ctx.createBiquadFilter();
@@ -1162,7 +1183,7 @@ export class GuitarSampler {
     out.connect(destNode);
 
     // no per-hit normalization: velocity layers + accent scaling only
-    const level = (0.55 + 0.45 * velocity) * strokeGain * (art === "dead" ? 0.9 : 1);
+    const level = (0.55 + 0.45 * velocity) * strokeGain * (art === "dead" ? (this.instrument === "bass" ? 2.2 : 1.25) : 1);
 
     // PM decay: mute pressure sets the base, the gap to the next hit caps it
     let ring: number;
@@ -1210,7 +1231,16 @@ export class GuitarSampler {
       // with its first 20 ms trimmed — less transient, same body — on top of
       // the darker tone filter and lower level it already gets
       const soft = this.playerRules && art === "open" && velocity < 0.86 ? 0.5 + 0.5 * ((velocity - 0.5) / 0.36) : 1;
-      this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0, Math.max(0.45, Math.min(1, soft)));
+      if (art === "dead") {
+        // choked: instant attack, a 25 ms body, gone by ~110 ms
+        v.level = level;
+        v.env.gain.setValueAtTime(level, when);
+        v.env.gain.setValueAtTime(level, when + 0.025);
+        v.env.gain.exponentialRampToValueAtTime(0.0001, when + 0.11);
+        v.holdUntil = when + 0.025; v.releaseAt = when + 0.11;
+      } else {
+        this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0, Math.max(0.45, Math.min(1, soft)));
+      }
       if (!opts.isTwin && !opts.pickless) this.fretClank(when, midi, art, velocity);
     }
     src.start(when, opts.pickless && art === "open" ? 0.028 : 0);

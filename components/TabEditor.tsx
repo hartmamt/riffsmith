@@ -207,6 +207,14 @@ export default function TabEditor() {
   const [landings, setLandings] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.landings") !== "0");
   const landingsRef = useRef(true);
+  const [bassRig, setBassRig] = useState<"bass" | "guitar">(() =>
+    typeof window === "undefined" ? "bass" : ((localStorage.getItem("gs.bassRig") as "bass" | "guitar" | null) ?? "bass"));
+  const bassRigRef = useRef<"bass" | "guitar">("bass");
+  useEffect(() => {
+    bassRigRef.current = bassRig;
+    localStorage.setItem("gs.bassRig", bassRig);
+    if (samplerRef.current) samplerRef.current.bassRig = bassRig;
+  }, [bassRig]);
   useEffect(() => {
     landingsRef.current = landings;
     localStorage.setItem("gs.landings", landings ? "1" : "0");
@@ -245,6 +253,7 @@ export default function TabEditor() {
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
       s.legatoLandings = landingsRef.current;
+      s.bassRig = bassRigRef.current;
       s.setNamInput(namInputRef.current);
       s.hybridSampleAttack = !modelOnlyRef.current;
       if (hybridRef.current) { s.engineMode = "hybrid"; armHybrid(s); }
@@ -874,6 +883,7 @@ export default function TabEditor() {
       note_bank: noteBank,
       player_rules: playerRules,
       legato_landings: landings,
+      bass_rig: bassRig,
       nam_input: namInput,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
@@ -906,6 +916,7 @@ export default function TabEditor() {
       }
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
       if (patch.legato_landings !== undefined) setLandings(patch.legato_landings);
+      if (patch.bass_rig !== undefined) setBassRig(patch.bass_rig);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
@@ -1334,6 +1345,19 @@ export default function TabEditor() {
                 <option value="guitar-di">guitar DI (clean)</option>
               </select>
             </div>
+            {(song.sound ?? "synth") === "guitar" && song.tuning.length <= 5 && Math.min(...song.tuning.map((n) => noteToMidi(n) ?? 99)) < 36 && (
+              <div className="rig-row">
+                <span>bass</span>
+                <select
+                  value={bassRig}
+                  title="bass amp: its own clean-to-gritty chain (tight = drive); guitar rig: through the loaded capture or built-in amp for a distorted bass"
+                  onChange={(e) => setBassRig(e.target.value as "bass" | "guitar")}
+                >
+                  <option value="bass">bass amp</option>
+                  <option value="guitar">guitar rig (distorted)</option>
+                </select>
+              </div>
+            )}
             {(song.sound ?? "synth") !== "synth" && (
               <div className="rig-row">
                 <span>guitar</span>
