@@ -1,0 +1,10 @@
+Electric Guitar FSBS (direct) — FreePats project, version 2022-09-11
+Source: https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html
+        https://github.com/freepats/electric-guitar-FSBS-direct
+License: Creative Commons CC0 1.0 public domain dedication
+         https://creativecommons.org/publicdomain/zero/1.0/
+
+Direct (DI) recordings of a Fender electric guitar, bridge pickup, standard
+tuning, two dynamics x round robins, 48 kHz. Trimmed to 3.5 s, level-matched
+(hard x0.45, soft x0.20) and encoded to MP3 for RiffSmith by Matt Hartman, 2026.
+Files: n<midi>_<h|s>_rr<n>.mp3 (h = hard pick, 4 RR; s = soft pick, 2 RR).

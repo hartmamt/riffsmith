@@ -18,6 +18,10 @@
 // starts a new pickless note (sample started past its pick transient).
 
 const NOTE_ROOTS = [37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 86];
+// FreePats "Electric Guitar FSBS (direct)" (CC0): Fender bridge pickup, standard
+// tuning, 2 dynamics (hard ×4 RR, soft ×2 RR). Roots include a low C2 on the
+// dropped 6th string, so Drop-C/B notes are within a semitone or two.
+const FSBS_ROOTS = [36, 40, 41, 45, 48, 50, 52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85];
 const PM_ROOTS = [37, 40, 43, 46, 49, 52, 55, 58, 61, 64, 67];
 const MUTE_IDS = [1, 2, 3, 4, 5]; // unpitched dead hits, high → low register
 const BASE = "/samples";
@@ -83,6 +87,7 @@ export class GuitarSampler {
   private pmCustomVels = new Map<number, number[]>(); // root → sorted vels
   private pmCustomRrs = new Map<string, number>();    // root_vel_stroke → rr count
   private repickTails = new Map<number, StringVoice[]>(); // overlapping tremolo strokes
+  private fsbsRr = new Map<string, number>(); // `${root}${layer}` → round-robin count present
   // performance state (Phase 0 "player rules"): the pick's position drifts a
   // little from stroke to stroke, and the double-tracked take drifts in pitch
   // like a second tape machine (ADT) instead of sitting at a fixed offset
@@ -179,10 +184,13 @@ export class GuitarSampler {
   ready(): Promise<void> {
     if (!this.loading) {
       const urls: [string, string][] = [];
+      // Emilyguitar notes stay as the fallback sustain set (loaded lazily if
+      // the FreePats bank is missing); its mute noises are always loaded
+      const emilyNotes: [string, string][] = [];
       for (const m of NOTE_ROOTS) {
-        urls.push([`n${m}_rr1`, `${BASE}/emily/n${m}.wav`]);
-        urls.push([`n${m}_rr2`, `${BASE}/emily/n${m}_rr2.wav`]);
-        urls.push([`n${m}_rr3`, `${BASE}/emily/n${m}_rr3.wav`]);
+        emilyNotes.push([`n${m}_rr1`, `${BASE}/emily/n${m}.wav`]);
+        emilyNotes.push([`n${m}_rr2`, `${BASE}/emily/n${m}_rr2.wav`]);
+        emilyNotes.push([`n${m}_rr3`, `${BASE}/emily/n${m}_rr3.wav`]);
       }
       for (const i of MUTE_IDS) {
         urls.push([`m${i}_rr1`, `${BASE}/emily/m${i}.wav`]);
@@ -196,14 +204,35 @@ export class GuitarSampler {
           }
         }
       }
-      this.loading = Promise.all(
-        urls.map(async ([key, url]) => {
+      const load = async ([key, url]: [string, string]) => {
+        try {
           const res = await fetch(url);
           if (!res.ok) return; // tolerate missing files
           const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
           this.buffers.set(key, buf);
+        } catch {}
+      };
+      // the FreePats bank ships a manifest (not every root has a soft layer
+      // or four round robins), so only files that exist are requested
+      const fsbs: [string, string][] = [];
+      const loadFsbs = async () => {
+        try {
+          const man = await fetch(`${BASE}/fsbs/manifest.json`).then((r) => (r.ok ? r.json() : null));
+          for (const f of (man?.files ?? []) as string[]) {
+            const m = /^n(\d+)_([hs])_rr(\d+)\.mp3$/.exec(f);
+            if (!m) continue;
+            fsbs.push([`f${m[1]}_${m[2]}_rr${m[3]}`, `${BASE}/fsbs/${f}`]);
+            const k = `${m[1]}${m[2]}`;
+            this.fsbsRr.set(k, Math.max(this.fsbsRr.get(k) ?? 0, Number(m[3])));
+          }
+        } catch {}
+        await Promise.all(fsbs.map(load));
+      };
+      this.loading = Promise.all([...urls.map(load), loadFsbs()])
+        .then(async () => {
+          if (!this.buffers.has("f40_h_rr1")) await Promise.all(emilyNotes.map(load));
         })
-      ).then(() => this.buildAmp());
+        .then(() => this.buildAmp());
     }
     return this.loading;
   }
@@ -483,6 +512,21 @@ export class GuitarSampler {
     return (n % count) + 1;
   }
 
+  // sustained-note sample for a pitch and pick strength: FreePats layer by
+  // velocity (accents 0.72-1.0 → soft below ~0.86, hard above), else Emily
+  private openBuffer(midi: number, velocity: number): { buffer: AudioBuffer | undefined; root: number } {
+    if (this.buffers.has("f40_h_rr1")) {
+      const root = this.nearest(FSBS_ROOTS, midi);
+      let layer: "h" | "s" = velocity >= 0.865 ? "h" : "s";
+      if (!this.fsbsRr.has(`${root}${layer}`)) layer = "h"; // high roots have no soft layer
+      const rr = this.nextRr(`f${root}${layer}`, this.fsbsRr.get(`${root}${layer}`) ?? 1);
+      const buffer = this.buffers.get(`f${root}_${layer}_rr${rr}`) ?? this.buffers.get(`f${root}_h_rr1`);
+      if (buffer) return { buffer, root };
+    }
+    const root = this.nearest(NOTE_ROOTS, midi);
+    return { buffer: this.buffers.get(`n${root}_rr${this.nextRr(`n${root}`, 3)}`), root };
+  }
+
   private nearest(list: number[], midi: number): number {
     let best = list[0];
     for (const m of list) if (Math.abs(m - midi) < Math.abs(best - midi)) best = m;
@@ -640,8 +684,9 @@ export class GuitarSampler {
       buffer = picked.buffer;
       sampleMidi = picked.root;
     } else {
-      sampleMidi = this.nearest(NOTE_ROOTS, opts.glideFromMidi ?? midi);
-      buffer = this.buffers.get(`n${sampleMidi}_rr${this.nextRr(`n${sampleMidi}`, 3)}`);
+      const o = this.openBuffer(opts.glideFromMidi ?? midi, velocity);
+      buffer = o.buffer;
+      sampleMidi = o.root;
     }
     if (!buffer) return;
 
@@ -821,8 +866,9 @@ export class GuitarSampler {
       buffer = picked.buffer;
       sampleMidi = picked.root;
     } else {
-      sampleMidi = this.nearest(NOTE_ROOTS, midi);
-      buffer = this.buffers.get(`n${sampleMidi}_rr${this.nextRr(`n${sampleMidi}`, 3)}`);
+      const o = this.openBuffer(midi, velocity);
+      buffer = o.buffer;
+      sampleMidi = o.root;
     }
     if (!buffer) return;
 
@@ -892,8 +938,7 @@ export class GuitarSampler {
           if (body.vibrato) body.vibrato.lfo.stop(when + 0.1);
         } catch {}
         const fresh = ctx.createBufferSource();
-        const root = this.nearest(NOTE_ROOTS, midi);
-        const buf2 = this.buffers.get(`n${root}_rr${this.nextRr(`n${root}`, 3)}`);
+        const { buffer: buf2, root } = this.openBuffer(midi, 0.9);
         if (buf2) {
           fresh.buffer = buf2;
           fresh.detune.value = (midi - root) * 100;
@@ -927,9 +972,7 @@ export class GuitarSampler {
     if (doubled) {
       // independent second take, small offset, own RR
       const t2 = when + 0.002 + Math.random() * 0.003;
-      const rr2 = art === "open"
-        ? this.buffers.get(`n${sampleMidi}_rr${this.nextRr(`n${sampleMidi}`, 3)}`)
-        : buffer;
+      const rr2 = art === "open" ? (this.openBuffer(midi, velocity).buffer ?? buffer) : buffer;
       if (rr2) {
         const s2 = ctx.createBufferSource();
         s2.buffer = rr2;

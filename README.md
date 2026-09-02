@@ -144,7 +144,8 @@ Songs and rig settings persist in `localStorage`; custom palm-mute samples and t
 
 Sample sources, as documented in `lib/sampler.ts`:
 
-- Sustained notes and unpitched dead hits: **Emilyguitar** by Karoryfer Samples, CC0. DI electric, f dynamic, 3 round robins, roots every 3 semitones. The "muted" noises in that library are unpitched string-muting sounds and are used here only for dead hits, never for pitched mutes.
+- Sustained notes: **Electric Guitar FSBS (direct)** by the FreePats project, CC0. DI Fender electric, bridge pickup, standard tuning with a dropped low C, two pick dynamics (hard ×4 round robins, soft ×2), 48 kHz. Trimmed to 3.5 s and level-matched for RiffSmith (`public/samples/fsbs/NOTICE.txt`).
+- Unpitched dead hits (and fallback sustains): **Emilyguitar** by Karoryfer Samples, CC0. The "muted" noises in that library are unpitched string-muting sounds and are used here only for dead hits, never for pitched mutes.
 - Pitched palm mutes: **Pastabass "tagliatelle"** by Karoryfer Samples, royalty-free including redistribution. Squier Bass VI, flatwound, picked and muted; 2 velocity layers, 3 round robins.
 - Alternate palm-mute bank: **Metal GTX** mutes by Unreal Instruments, license-free with no credit required per the bundled terms. Served from `public/samples/gtx/` via its `manifest.json` and selected with the `gtx` palm-mute bank option.
 - **@opendaw/nam-wasm** (MIT), a WASM build of Steven Atkinson's NeuralAmpModelerCore v0.5.3 (MIT) with the A2 fast path. The NAM core license is included at `public/nam/LICENSE`.
