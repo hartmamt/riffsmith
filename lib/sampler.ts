@@ -378,14 +378,15 @@ export class GuitarSampler {
         return this.bassViLoading;
       };
       // first play needs the Guitar-TECHS notes and the muting noises (~8 MB);
-      // the amp is built as soon as they land. The Fender bank and the
-      // built-in mutes (another ~8 MB) follow in the background so the
-      // fallbacks exist a few seconds later without gating the first note.
-      // Selecting them in the rig awaits them explicitly.
+      // the amp is built as soon as they land. Selecting another bank in the
+      // rig awaits its load explicitly.
       const first = this.noteBank === "fsbs" ? [...urls.map(load), loadGt(), this.ensureFsbs()] : [...urls.map(load), loadGt()];
       this.loading = Promise.all(first)
         .then(() => this.buildAmp())
-        .then(() => { void this.ensureFsbs(); void this.ensureBassVi(); });
+        // the built-in mutes are the fallback for chugs outside the LP bank's
+        // reach, so they follow in the background; the Fender bank (~67 MB
+        // decoded) waits until someone actually selects it
+        .then(() => { void this.ensureBassVi(); });
     }
     return this.loading;
   }
