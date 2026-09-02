@@ -237,8 +237,10 @@ impl Str {
             self.energy += (yv * yv - self.energy) * 0.002;
 
             // pickup: position comb + coil resonance (SVF, 2-pole)
+            // a real pickup has a finite aperture, so its position comb only
+            // dips (about -6 dB) instead of notching the harmonics fully
             let sensed = yv + self.pol_mix * yh;
-            let tapped = sensed - (self.v.read(self.pickup * delay_v) + self.pol_mix * self.h.read(self.pickup * delay_h));
+            let tapped = sensed - 0.5 * (self.v.read(self.pickup * delay_v) + self.pol_mix * self.h.read(self.pickup * delay_h));
             let fc = self.pickup_hz.min(sr * 0.45);
             let f1 = 2.0 * (core::f32::consts::PI * fc / sr).sin();
             let q1 = 1.0 / self.pickup_q.max(0.3);
