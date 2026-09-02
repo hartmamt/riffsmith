@@ -1302,8 +1302,8 @@ export class GuitarSampler {
       open.frequency.setValueAtTime(1400, when);
       open.frequency.exponentialRampToValueAtTime(16000, when + 0.03);
       const tilt = ctx.createBiquadFilter();
-      tilt.type = "highshelf"; tilt.frequency.value = 1200;
-      tilt.gain.value = Math.min(6, 0.8 * semisDown);
+      tilt.type = "highshelf"; tilt.frequency.value = 800;
+      tilt.gain.value = Math.min(7, 1.0 * semisDown);
       src.connect(open).connect(tilt);
       head = tilt;
     }
