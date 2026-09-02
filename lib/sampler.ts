@@ -500,8 +500,8 @@ export class GuitarSampler {
     const pres = ctx.createBiquadFilter(); pres.type = "peaking"; pres.frequency.value = 1500; pres.Q.value = 0.8; pres.gain.value = 2;
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000; lp.Q.value = 0.6;
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -20; comp.ratio.value = 4; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
-    const post = ctx.createGain(); post.gain.value = 0.55 * this.level;
+    comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
+    const post = ctx.createGain(); post.gain.value = 0.8 * this.level;
     input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
     post.connect(ctx.destination);
     if (this.analyser) post.connect(this.analyser);
@@ -513,7 +513,7 @@ export class GuitarSampler {
     this.level = Math.max(0, Math.min(2, x));
     if (this.post) this.post.gain.value = 0.65 * this.level;
     if (this.namPost) this.namPost.gain.value = 0.65 * this.level;
-    if (this.bassAmp) this.bassAmp.post.gain.value = 0.55 * this.level;
+    if (this.bassAmp) this.bassAmp.post.gain.value = 0.8 * this.level;
   }
 
   // 0 = loose/vintage, 1 = surgically tight: HPF 55→140Hz, +0→4dB @900Hz,
@@ -1015,7 +1015,7 @@ export class GuitarSampler {
     const stroke = opts.stroke ?? (opts.isTwin ? (this.pickStroke ?? "d") : this.nextStroke(true));
     this.pickStroke = stroke;
     if (!opts.isTwin && !opts.pickless) {
-      this.floorSet(true, when - 0.02);
+      if (!(this.instrument === "bass" && this.bassRig === "bass")) this.floorSet(true, when - 0.02);
       if (art !== "dead") this.pickScrape(when, midi, velocity, art);
     }
 
