@@ -144,6 +144,8 @@ Songs and rig settings persist in `localStorage`; custom palm-mute samples and t
 
 ## Credits and licenses
 
+The MIT license in `LICENSE` covers RiffSmith's own code and the bundled RiffSmith Distorted capture. Bundled third-party audio and engine assets carry their own licenses, listed here.
+
 Sample sources, as documented in `lib/sampler.ts`:
 
 - Sustained notes and palm mutes (LP humbucker, standard tuning): **Guitar-TECHS** (Pedroza et al., ICASSP 2025), player 1 direct-input channel, CC BY 4.0. One DI note per string and fret plus palm mutes on every position, cut from the long recordings and level-matched for RiffSmith (`public/samples/gtechs/NOTICE.txt`). The recording's low E string was dead (its upper partials sat at the noise floor), so those files had partials 4–12 regenerated from the recorded fundamentals and fitted to the A string's spectrum; the NOTICE documents the change. Notes are chosen string-aware, so a fret-5 A on the low E plays the low-E recording.
