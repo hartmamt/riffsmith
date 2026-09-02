@@ -200,3 +200,37 @@ export function makeStringAuditionSong(): Song {
     updatedAt: Date.now(),
   };
 }
+
+// Bass audition: Bass Drop B (E2 B1 F#1 B0). One thing per section so the
+// bass bank can be judged phrase by phrase.
+// Strings top→bottom: 0 E2 · 1 B1 · 2 F#1 · 3 B0.
+export function makeBassAuditionSong(): Song {
+  const tuning = [...TUNING_PRESETS["Bass Drop B"]];
+  const B0 = 3, F1 = 2, B1 = 1, E2 = 0;
+  const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string) =>
+    barLines(tuning, lines, sig, spb, label);
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: "Bass Audition",
+    artist: "RiffSmith",
+    bpm: 140,
+    tuning,
+    sound: "guitar",
+    measures: [
+      bl({ [B0]: "0 = = = = ~ = =" }, "4/4", 2, "1 · LOW B, LET RING"),
+      bl({ [B1]: "3 = = = ~ = = =" }, "4/4", 2),
+      bl({ [B0]: "m0 m0 m0 m0 m0 m0 m0 m0" }, "4/4", 2, "2 · CHUGS (hard, then soft)"),
+      bl({ [B0]: "m0 m0 x m0 m0 x 3 m0" }, "4/4", 2),
+      bl({ [B0]: "0 . 0 . 3 . 5 .", [F1]: ". . . . . . . ." }, "4/4", 2, "3 · ROOT–FIFTH RIFF"),
+      bl({ [B0]: "0 . 0 .", [F1]: ". 0 . 0" }, "4/4", 2),
+      bl({ [B0]: "0 0 0 0 0 0 0 0 3 3 3 3 5 5 5 5" }, "4/4", 4, "4 · 16TH GALLOP"),
+      bl({ [B0]: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" }, "4/4", 4),
+      bl({ [B0]: "0 /5 = /7 = \\3 = =" }, "4/4", 2, "5 · SLIDES"),
+      bl({ [B1]: "0 h2 h3 p2 p0 = = =" }, "4/4", 2, "6 · HAMMER-ONS / PULL-OFFS"),
+      bl({ [F1]: "5 h7 p5 = 3 h5 = =" }, "4/4", 2),
+      bl({ [B0]: "0 = . 0 = . 0 =", [F1]: "7 = . 7 = . 7 =" }, "4/4", 2, "7 · OCTAVES"),
+      bl({ [B1]: "0 = = = = = = =", [E2]: "2 = = = = = = =" }, "4/4", 2, "8 · TWO-NOTE CHORD, LET RING"),
+    ],
+    updatedAt: Date.now(),
+  };
+}
