@@ -196,6 +196,14 @@ export default function TabEditor() {
   const [playerRules, setPlayerRules] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.rules") !== "0");
   const rulesRef = useRef(true);
+  const [namInput, setNamInput] = useState(() =>
+    typeof window === "undefined" ? 0.45 : parseFloat(localStorage.getItem("gs.namInput") ?? "0.45"));
+  const namInputRef = useRef(0.45);
+  useEffect(() => {
+    namInputRef.current = namInput;
+    localStorage.setItem("gs.namInput", String(namInput));
+    samplerRef.current?.setNamInput(namInput);
+  }, [namInput]);
   useEffect(() => {
     rulesRef.current = playerRules;
     localStorage.setItem("gs.rules", playerRules ? "1" : "0");
@@ -220,6 +228,7 @@ export default function TabEditor() {
       samplerRef.current = s;
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
+      s.setNamInput(namInputRef.current);
       if (hybridRef.current) { s.engineMode = "hybrid"; void s.enableHybrid(); }
       s.setLevel(levelRef.current);
       const cfg = chugCfgRef.current;
@@ -836,6 +845,7 @@ export default function TabEditor() {
       pm_bank: pmSource,
       note_bank: noteBank,
       player_rules: playerRules,
+      nam_input: namInput,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
@@ -862,6 +872,7 @@ export default function TabEditor() {
       }
       if (patch.engine !== undefined) { setLegacyEngine(patch.engine === "old"); setHybridEngine(patch.engine === "hybrid"); }
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
+      if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
         localStorage.setItem("gs.cabOn", patch.cab ? "1" : "0");
@@ -1386,6 +1397,17 @@ export default function TabEditor() {
                     setAmpLevel(v);
                     localStorage.setItem("gs.ampLevel", String(v));
                   }}
+                />
+              </div>
+            )}
+            {(song.sound ?? "synth") === "guitar" && namStatus && !namStatus.startsWith("✕") && (
+              <div className="rig-slider">
+                <span>input</span>
+                <input
+                  className="level-slider" type="range" min={0.1} max={2} step={0.05}
+                  value={namInput}
+                  title="DI level into the capture. Captures are trained on a guitar's own output (peaks around -10 dBFS); 0.45 puts our samples there. Push it for more gain, pull it back if it fizzes."
+                  onChange={(e) => setNamInput(parseFloat(e.target.value))}
                 />
               </div>
             )}

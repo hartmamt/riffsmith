@@ -26,6 +26,7 @@ export type RigState = {
   pm_bank: "bassvi" | "gtx" | "gtechs" | "custom";
   note_bank: "gtechs" | "fsbs";
   player_rules: boolean;
+  nam_input: number;
   nam_model: string | null;
   nam_models: string[];
   loop: boolean;
@@ -535,7 +536,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "get_rig",
       description:
-        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
+        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), nam_input (DI level into the capture), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok("Current rig", { ...get().rig }),
@@ -558,6 +559,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           pm_bank: { type: "string", enum: ["gtechs", "gtx", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (standard tuning), gtx = 7-string (drop tunings), bassvi, custom" },
           note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
           nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
+          nam_input: { type: "number", minimum: 0.1, maximum: 2, description: "DI level into the NAM capture (1 = raw sample level; default 0.45 ≈ -7 dB, where captures are trained)" },
           loop: { type: "boolean" },
         },
         additionalProperties: false,
@@ -565,7 +567,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
       execute: async (args) => {
         const a = get();
         const patch: Record<string, unknown> = {};
-        for (const k of ["tight", "volume", "mute_grip"] as const) {
+        for (const k of ["tight", "volume", "mute_grip", "nam_input"] as const) {
           if (args[k] !== undefined) {
             const v = Number(args[k]);
             if (!isFinite(v)) return fail(`${k} must be a number.`);

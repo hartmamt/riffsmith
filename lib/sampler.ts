@@ -61,6 +61,13 @@ export class GuitarSampler {
   private analyser: AnalyserNode | null = null;
   private namNode: AudioWorkletNode | null = null;
   private namMakeup: GainNode | null = null;
+  // NAM path: input trim (captures are trained on DI peaking around -10 dBFS;
+  // our samples peak near -2), then model → makeup → optional cab → level →
+  // out. No compressor: a full-rig capture already carries the amp's own.
+  private namIn: GainNode | null = null;
+  private namCab: ConvolverNode | null = null;
+  private namPost: GainNode | null = null;
+  private namInputTrim = 0.45;
   private cabBypass = true; // most shared captures are full rigs (amp + cab)
   private level = 1;
   private noiseBuf: AudioBuffer | null = null; // fret-impact transients
@@ -407,6 +414,7 @@ export class GuitarSampler {
   setLevel(x: number) {
     this.level = Math.max(0, Math.min(2, x));
     if (this.post) this.post.gain.value = 0.65 * this.level;
+    if (this.namPost) this.namPost.gain.value = 0.65 * this.level;
   }
 
   // 0 = loose/vintage, 1 = surgically tight: HPF 55→140Hz, +0→4dB @900Hz,
@@ -1406,16 +1414,37 @@ export class GuitarSampler {
 
   // ---- NAM ------------------------------------------------------------------
 
+  /** DI level into the NAM model, 0.1–2 (1 = raw sample level). */
+  setNamInput(x: number) {
+    this.namInputTrim = Math.max(0.1, Math.min(2, x));
+    if (this.namIn) this.namIn.gain.value = this.namInputTrim;
+  }
+
+  get namInput(): number { return this.namInputTrim; }
+
   private routeNam(on: boolean) {
     if (!this.ampIn || !this.drive || !this.cab) return;
     try { this.ampIn.disconnect(); } catch {}
     if (on && this.namNode) {
-      if (!this.namMakeup) this.namMakeup = this.ctx.createGain();
-      this.ampIn.connect(this.namNode);
+      const ctx = this.ctx;
+      if (!this.namMakeup) this.namMakeup = ctx.createGain();
+      if (!this.namIn) { this.namIn = ctx.createGain(); this.namIn.gain.value = this.namInputTrim; }
+      if (!this.namPost) {
+        this.namPost = ctx.createGain();
+        this.namPost.gain.value = 0.65 * this.level;
+        this.namPost.connect(ctx.destination);
+        if (this.analyser) this.namPost.connect(this.analyser);
+      }
+      if (!this.namCab) { this.namCab = ctx.createConvolver(); this.namCab.buffer = this.cab.buffer; }
+      try { this.namIn.disconnect(); } catch {}
       try { this.namNode.disconnect(); } catch {}
       try { this.namMakeup.disconnect(); } catch {}
+      try { this.namCab.disconnect(); } catch {}
+      this.ampIn.connect(this.namIn);
+      this.namIn.connect(this.namNode);
       this.namNode.connect(this.namMakeup);
-      this.namMakeup.connect(this.cabBypass && this.post ? this.post : this.cab);
+      if (this.cabBypass) this.namMakeup.connect(this.namPost);
+      else { this.namMakeup.connect(this.namCab); this.namCab.connect(this.namPost); }
     } else {
       if (this.namNode) { try { this.namNode.disconnect(); } catch {} }
       this.ampIn.connect(this.drive);
