@@ -101,6 +101,7 @@ export class GuitarSampler {
   // noise layer (part of the player rules): a powered-on floor under the
   // amp, a pick scrape a few ms before each stroke, and the pick-hand thunk
   // when a ringing note is stopped
+  private squeakBuf: AudioBuffer | null = null; // 1 s white noise for slide squeaks
   private floorSrc: AudioBufferSourceNode | null = null;
   private floorGain: GainNode | null = null;
   private floorOn = false;
@@ -409,6 +410,10 @@ export class GuitarSampler {
       nd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.005));
     }
     this.noiseBuf = nb;
+    const sq = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const sd = sq.getChannelData(0);
+    for (let i = 0; i < sd.length; i++) sd[i] = Math.random() * 2 - 1;
+    this.squeakBuf = sq;
 
     // powered-on noise floor: pink-tilted noise, gated by playing, into the
     // amp path only (never the DI monitor). -92 dBFS is a quiet humbucker rig;
@@ -738,6 +743,61 @@ export class GuitarSampler {
     src.stop(when + 0.05);
   }
 
+  // fret clank: a hard pick on a low string throws the string against the
+  // frets for its first few cycles — a bright burst locked to the period
+  // (Rank & Kubin's amplitude limiting, done phenomenologically). Only on
+  // hard hits on the two lowest strings, so it can't be overdone by accident.
+  private fretClank(when: number, midi: number, art: Articulation, velocity: number) {
+    if (!this.noiseBuf || !this.playerRules || this.diMode) return;
+    if (velocity < 0.95 || midi > 47 || art === "dead" || art === "pinch") return;
+    const ctx = this.ctx;
+    const T = 1 / midiToHz(midi);
+    const base = (art === "palm" ? 0.09 : 0.12) * (midi <= 42 ? 1 : 0.7);
+    for (let k = 0; k < 3; k++) {
+      const t = when + 0.003 + k * T;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass"; bp.frequency.value = 3200; bp.Q.value = 1.4;
+      const g = ctx.createGain();
+      const lvl = base * Math.pow(0.55, k);
+      g.gain.setValueAtTime(lvl, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.0015);
+      src.connect(bp).connect(g).connect(this.dest());
+      src.start(t);
+      src.stop(t + 0.006);
+    }
+  }
+
+  // slide squeak: the finger dragging over a wound string's winding makes a
+  // pitched scrape whose frequency follows the slide speed (windings per
+  // metre × m/s, Pakarinen 2008). Plain strings just hiss faintly.
+  private slideSqueak(when: number, fromMidi: number, toMidi: number, dur: number) {
+    if (!this.squeakBuf || !this.playerRules || this.diMode || dur <= 0.02) return;
+    const ctx = this.ctx;
+    const frets = Math.abs(toMidi - fromMidi);
+    if (frets < 1) return;
+    const wound = Math.min(fromMidi, toMidi) < 55;
+    const speed = (frets * 0.03) / dur;                     // ~3 cm per fret
+    const fc = Math.max(500, Math.min(6000, 3000 * speed)); // ~3000 windings/m
+    const level = (wound ? 0.028 : 0.008) * Math.min(1, speed * 1.2);
+    const src = ctx.createBufferSource();
+    src.buffer = this.squeakBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = wound ? 5 : 1;
+    bp.frequency.setValueAtTime(fc * 0.7, when);
+    bp.frequency.linearRampToValueAtTime(fc, when + dur * 0.4);
+    bp.frequency.linearRampToValueAtTime(fc * 0.6, when + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.linearRampToValueAtTime(level, when + dur * 0.3);
+    g.gain.setValueAtTime(level, when + dur * 0.75);
+    g.gain.linearRampToValueAtTime(0, when + dur + 0.01);
+    src.connect(bp).connect(g).connect(this.dest());
+    src.start(when, Math.random() * 0.5);
+    src.stop(when + dur + 0.03);
+  }
+
   // short filtered noise blip — the fret/finger impact of legato techniques
   private fretImpact(when: number, level: number) {
     if (!this.noiseBuf) return;
@@ -773,12 +833,13 @@ export class GuitarSampler {
     v.vibrato = { lfo, depth };
   }
 
-  private scheduleEnvelope(v: StringVoice, when: number, ringSeconds: number, level: number, attack: number) {
+  private scheduleEnvelope(v: StringVoice, when: number, ringSeconds: number, level: number, attack: number, softStart = 1) {
     v.level = level;
     const g = v.env.gain;
     g.cancelScheduledValues(when);
-    g.setValueAtTime(Math.max(0.0001, attack === 0 ? level : 0.0001), when);
+    g.setValueAtTime(Math.max(0.0001, attack === 0 ? level * softStart : 0.0001), when);
     if (attack > 0) g.exponentialRampToValueAtTime(level, when + attack);
+    else if (softStart < 1) g.linearRampToValueAtTime(level, when + 0.02); // a softer pick: transient trimmed, body intact
     g.setValueAtTime(level, when + ringSeconds * 0.7);
     g.exponentialRampToValueAtTime(0.0001, when + ringSeconds);
     v.holdUntil = when + ringSeconds * 0.7;
@@ -951,6 +1012,7 @@ export class GuitarSampler {
     if (art !== "dead" && opts.glideFromMidi !== undefined && opts.glideDur) {
       src.detune.setValueAtTime((opts.glideFromMidi - sampleMidi) * 100, when);
       src.detune.linearRampToValueAtTime(shiftCents, when + opts.glideDur);
+      if (!opts.isTwin && art === "open") this.slideSqueak(when, opts.glideFromMidi, midi, opts.glideDur);
     } else if (art !== "dead") {
       // tension glide: start sharp, settle onto the pitch as the string's
       // energy decays (≈180ms open, ≈120ms palm). Later legato/bend automation
@@ -1068,7 +1130,12 @@ export class GuitarSampler {
       v.holdUntil = when + hold;
       v.releaseAt = when + end;
     } else {
-      this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0);
+      // one-dynamic banks (Guitar-TECHS): a soft pick is the same recording
+      // with its first 20 ms trimmed — less transient, same body — on top of
+      // the darker tone filter and lower level it already gets
+      const soft = this.playerRules && art === "open" && velocity < 0.86 ? 0.5 + 0.5 * ((velocity - 0.5) / 0.36) : 1;
+      this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0, Math.max(0.45, Math.min(1, soft)));
+      if (!opts.isTwin && !opts.pickless) this.fretClank(when, midi, art, velocity);
     }
     src.start(when, opts.pickless && art === "open" ? 0.028 : 0);
     if (attackOnly) src.stop(v.releaseAt + 0.05);
@@ -1407,6 +1474,7 @@ export class GuitarSampler {
     si: number, midi: number, when: number, dur: number,
     opts: { sustain?: number; vibrato?: boolean; fromMidi?: number; velocity?: number } = {}
   ) {
+    this.slideSqueak(when, opts.fromMidi ?? this.voices.get(si)?.currentMidi ?? midi - 2, midi, dur);
     if (this.engineMode === "hybrid" && this.stringNode) { this.hybridSlide(si, midi, when, dur, opts); return; }
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open" || when > v.releaseAt - 0.03) {
