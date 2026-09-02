@@ -1101,6 +1101,9 @@ export default function TabEditor() {
                 ensureSampler().ready();
                 setTight(0); localStorage.setItem("gs.tight", "0");
                 setRing(3.0);
+                // the experimental string model damps notes on its own, so a clean
+                // let-ring demo has to run on the sample voices
+                setLegacyEngine(false); setHybridEngine(false); setModelOnly(false);
                 if (bundledNam.some((b) => /clean/i.test(b.name))) void selectNamModel(bundledNam.find((b) => /clean/i.test(b.name))!.name);
               }}
             >

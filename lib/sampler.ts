@@ -1948,7 +1948,7 @@ export class GuitarSampler {
     const damp = opts.pickless ? 1 : 0.25;
     this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp, params }, [exc.buffer]);
     if (opts.vibrato && art === "open") this.sset(si, SP.VIB_DEPTH, 30, 150, when + (opts.glideDur ?? 0.1));
-    const ring = art === "open" ? 1.1 + (opts.sustain ?? 0) + (opts.glideDur ?? 0) : 0.5;
+    const ring = art === "open" ? Math.max(0.3, Math.min(3.2, this.ring)) + (opts.sustain ?? 0) + (opts.glideDur ?? 0) : 0.5;
     if (art === "open") this.hybridNoteEnd(si, when, ring);
     this.hybrid.set(si, { midi, art, until: when + ring, bendCents: 0 });
   }
