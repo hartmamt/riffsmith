@@ -28,6 +28,7 @@ type Articulation = "open" | "palm" | "dead";
 const SP = {
   FREQ: 0, BRIGHT: 1, LOSS: 2, DISP: 3, NONLIN: 4, MUTE: 5, PICKPOS: 6, PICKUP: 7,
   PICKUP_HZ: 8, PICKUP_Q: 9, TENSION: 10, DIRECT: 11, VIB_DEPTH: 12, VIB_RATE: 13, GAIN: 14,
+  POL_DETUNE: 15, POL_COUPLE: 16, POL_MIX: 17,
 } as const;
 const midiToHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -644,9 +645,13 @@ export class GuitarSampler {
     }
     if (!buffer) return;
 
-    if (this.engineMode === "hybrid" && this.stringNode && !opts.isTwin) {
+    // hybrid: the string model takes the note, but the REAL sampled attack
+    // still plays for its first ~100 ms and crossfades into the model, so the
+    // pick is the recording and only the ring-out is synthesized
+    let attackOnly = false;
+    if (this.engineMode === "hybrid" && this.stringNode && !opts.isTwin && art !== "dead") {
       this.hybridPick(si, midi, when, art, velocity, stroke, buffer, sampleMidi, opts);
-      return;
+      attackOnly = true;
     }
 
     if (opts.isTwin) {
@@ -756,10 +761,23 @@ export class GuitarSampler {
       articulation: art, vibrato: null, releaseAt: 0, level: 0, startedAt: when,
     };
     // preserve the first 5-20ms pick transient: instant attack for picked hits
-    this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0);
+    if (attackOnly) {
+      // sampled attack only: hold ~30 ms, then hand over to the string model
+      const hold = art === "palm" ? 0.035 : 0.03;
+      const end = art === "palm" ? 0.11 : 0.12;
+      const g = v.env.gain;
+      g.setValueAtTime(Math.max(0.0001, opts.pickless ? 0.0001 : level), when);
+      if (opts.pickless) g.exponentialRampToValueAtTime(level, when + 0.015);
+      g.setValueAtTime(level, when + hold);
+      g.exponentialRampToValueAtTime(0.0001, when + end);
+      v.releaseAt = when + end;
+    } else {
+      this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0);
+    }
     src.start(when, opts.pickless && art === "open" ? 0.028 : 0);
+    if (attackOnly) src.stop(v.releaseAt + 0.05);
     // no early src.stop: the envelope gates it, so legato can extend the voice
-    if (!opts.isTwin) {
+    if (!opts.isTwin && !attackOnly) {
       this.voices.set(si, v);
       if (opts.vibrato && art === "open") this.attachVibrato(v, when + (opts.glideDur ?? 0.1));
       if (doubled) {
@@ -808,9 +826,10 @@ export class GuitarSampler {
     }
     if (!buffer) return;
 
-    if (this.engineMode === "hybrid" && this.stringNode) {
+    let hybridStroke = false;
+    if (this.engineMode === "hybrid" && this.stringNode && art !== "dead") {
       this.hybridRepick(si, midi, when, art, velocity, stroke, buffer, sampleMidi);
-      return;
+      hybridStroke = true; // the sampled stroke still supplies the transient
     }
 
     const src = ctx.createBufferSource();
@@ -826,7 +845,7 @@ export class GuitarSampler {
     const strokeGain = stroke === "d" ? 1 : 0.93;
     // 0.82 headroom: strokes sum with the ringing body without buildup;
     // ±0.3dB per stroke so no two strokes are identical
-    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82 * Math.pow(10, (Math.random() - 0.5) * 0.06);
+    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82 * Math.pow(10, (Math.random() - 0.5) * 0.06) * (hybridStroke ? 0.7 : 1);
     const bodyEnd = when + 0.055;
     const relEnd = bodyEnd + 0.08;
     env.gain.setValueAtTime(level, when); // instant attack, transient intact
@@ -858,7 +877,7 @@ export class GuitarSampler {
 
     // re-excite the sustaining body: each stroke keeps the string's resonance
     // alive instead of letting the original note's envelope die mid-tremolo.
-    const body = this.voices.get(si);
+    const body = hybridStroke ? undefined : this.voices.get(si);
     if (body && art === "open" && body.articulation === "open" && body.currentMidi === midi) {
       if (when - body.startedAt > 0.7) {
         // the body sample has decayed into its dull zone — crossfade to a
@@ -1062,7 +1081,7 @@ export class GuitarSampler {
           node.port.postMessage({ type: "init", wasmBinary, strings: 8 }, [wasmBinary]);
         });
         const out = ctx.createGain();
-        out.gain.value = 0.45; // level-matched to the sampled voices at 100 ms
+        out.gain.value = 0.58; // level-matched to the sampled voices (fit 2026-09-01)
         node.connect(out);
         this.stringNode = node;
         this.stringOut = out;
@@ -1101,19 +1120,25 @@ export class GuitarSampler {
 
   // per-string physics: lower strings are darker, stiffer (more dispersion),
   // looser (more tension glide) — Drop B on a 6-string, or a bass
+  // values from a banded-spectrum fit of the model against the CC0 DI low B
+  // (see the 2026-09-01 calibration): dark loop, near-lossless, gentle
+  // dispersion, the pickup coil at 3.2 kHz with a low Q, two polarisations
   private stringDefaults(si: number) {
     const low = Math.min(1, si / 5);
-    this.sset(si, SP.BRIGHT, 0.72 - 0.22 * low);
-    this.sset(si, SP.LOSS, 0.8);
-    this.sset(si, SP.DISP, 0.08 + 0.25 * low);
-    this.sset(si, SP.NONLIN, 0.12 + 0.15 * low);
+    this.sset(si, SP.BRIGHT, 0.17 - 0.04 * low);
+    this.sset(si, SP.LOSS, 0.85);
+    this.sset(si, SP.DISP, 0.06 + 0.08 * low);
+    this.sset(si, SP.NONLIN, 0.03 + 0.04 * low);
     this.sset(si, SP.PICKPOS, 0.12);
     this.sset(si, SP.PICKUP, 0.07);
-    this.sset(si, SP.PICKUP_HZ, 3400);
-    this.sset(si, SP.PICKUP_Q, 1.5);
-    this.sset(si, SP.TENSION, 6 + 10 * low);
-    this.sset(si, SP.DIRECT, 0.45);
+    this.sset(si, SP.PICKUP_HZ, 3200);
+    this.sset(si, SP.PICKUP_Q, 0.7);
+    this.sset(si, SP.TENSION, 4 + 6 * low);
+    this.sset(si, SP.DIRECT, 0);
     this.sset(si, SP.VIB_RATE, 5.5);
+    this.sset(si, SP.POL_DETUNE, 2.5);
+    this.sset(si, SP.POL_COUPLE, 0.03);
+    this.sset(si, SP.POL_MIX, 0.5);
     this.sset(si, SP.GAIN, 1);
   }
 
@@ -1156,6 +1181,9 @@ export class GuitarSampler {
       params.push([SP.FREQ, f, 0]);
     }
     params.push([SP.VIB_DEPTH, 0, 0]);
+    // the sampled attack carries the first ~30 ms; the model fades in under it
+    params.push([SP.GAIN, 0, 0]);
+    this.sset(si, SP.GAIN, 1, 80, when + 0.02);
     if (art === "palm") {
       // palm-pressure trajectory: lands early and hard, eases at the pick,
       // re-clamps to the grip over 50–140 ms
