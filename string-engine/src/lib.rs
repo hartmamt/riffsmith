@@ -341,10 +341,12 @@ pub extern "C" fn se_pluck(string: u32, len: u32, gain: f32, damp: f32) {
     let s = &mut e.strings[si];
     let d = damp.clamp(0.0, 1.0);
     if d < 1.0 {
+        // the extra loss applies once per loop pass, and the window lasts
+        // 1.5 passes, so the per-pass factor is d^(1/1.5)
         let period = e.sr / s.freq.target.max(20.0);
-        let nn = (period * 1.5) as u32;
-        s.choke = d.max(1e-3).powf(1.0 / nn.max(1) as f32);
-        s.choke_left = nn;
+        let passes = 1.5f32;
+        s.choke = d.max(1e-3).powf(1.0 / passes);
+        s.choke_left = (period * passes) as u32;
         s.energy *= d * d;
     }
     s.exc[..n].copy_from_slice(&e.exc_in[..n]);

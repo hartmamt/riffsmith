@@ -1124,7 +1124,7 @@ export class GuitarSampler {
           node.port.postMessage({ type: "init", wasmBinary, strings: 8 }, [wasmBinary]);
         });
         const out = ctx.createGain();
-        out.gain.value = 0.75; // level-matched to the FreePats voices (fit 2026-09-01)
+        out.gain.value = 1.4; // level-matched to the FreePats voices (fit 2026-09-01)
         node.connect(out);
         this.stringNode = node;
         this.stringOut = out;
@@ -1240,7 +1240,7 @@ export class GuitarSampler {
     }
     const gain = (0.55 + 0.45 * velocity) * (stroke === "d" ? 1 : 0.93) * (art === "dead" ? 0.7 : 1) * (opts.pickless ? 0.6 : 1);
     // a fresh pick rests on the string first: most of the old ring is stopped
-    const damp = opts.pickless ? 1 : 0.35;
+    const damp = opts.pickless ? 1 : 0.25;
     this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp, params }, [exc.buffer]);
     if (opts.vibrato && art === "open") this.sset(si, SP.VIB_DEPTH, 30, 150, when + (opts.glideDur ?? 0.1));
     const ring = art === "open" ? 1.1 + (opts.sustain ?? 0) + (opts.glideDur ?? 0) : 0.5;
@@ -1262,7 +1262,7 @@ export class GuitarSampler {
     const gain = (0.55 + 0.45 * velocity) * (stroke === "d" ? 1 : 0.93) * 0.8 * Math.pow(10, (Math.random() - 0.5) * 0.06);
     // tremolo: each stroke re-excites the SAME vibrating string, the pick
     // contact knocking down some of the energy so it never builds up
-    this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp: 0.5, params }, [exc.buffer]);
+    this.stringNode!.port.postMessage({ type: "pluck", string: si, when, exc, gain, damp: 0.3, params }, [exc.buffer]);
     const ring = art === "open" ? 0.9 : 0.5;
     if (art === "open") this.hybridNoteEnd(si, when, ring);
     this.hybrid.set(si, { midi, art, until: when + ring, bendCents: 0 });
