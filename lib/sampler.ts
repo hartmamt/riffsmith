@@ -407,7 +407,7 @@ export class GuitarSampler {
     this.noiseBuf = nb;
 
     // powered-on noise floor: pink-tilted noise, gated by playing, into the
-    // amp path only (never the DI monitor). -84 dBFS is a quiet humbucker rig;
+    // amp path only (never the DI monitor). -92 dBFS is a quiet humbucker rig;
     // under a high-gain capture it's what makes the gaps between chugs breathe
     const fl = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const fd = fl.getChannelData(0);
@@ -686,9 +686,10 @@ export class GuitarSampler {
     this.floorOn = on;
     const g = this.floorGain.gain;
     g.cancelScheduledValues(when);
-    g.setValueAtTime(Math.max(0.00001, g.value), when);
-    if (on) g.exponentialRampToValueAtTime(Math.pow(10, -84 / 20), when + 0.05);
-    else g.exponentialRampToValueAtTime(0.00001, when + 0.4);
+    g.setValueAtTime(g.value, when);
+    // a high-gain capture adds ~40 dB, so "off" must reach true zero
+    if (on) g.linearRampToValueAtTime(Math.pow(10, -92 / 20), when + 0.05);
+    else g.linearRampToValueAtTime(0, when + 0.4);
   }
 
   // pick scrape: the plectrum drags over the winding a few ms before the
