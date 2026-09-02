@@ -1613,19 +1613,6 @@ export default function TabEditor() {
                   </button>
                 ))}
               </div>
-              <div className="rig-row">
-                <span>double track</span>
-                <button
-                  className={`rig-switch ${doubled ? "on" : ""}`}
-                  title="double-track: an independent second take, hard-panned L/R (two extra capture instances when a .nam model is loaded)"
-                  onClick={() => setDoubled((v) => {
-                    localStorage.setItem("gs.double", v ? "0" : "1");
-                    return !v;
-                  })}
-                >
-                  <span className="rig-switch-knob" />
-                </button>
-              </div>
               <div className="rig-slider">
                 <span>ring</span>
                 <input
@@ -1654,7 +1641,7 @@ export default function TabEditor() {
               <header>
                 <button
                   className="rig-disclose"
-                  title="sample banks, the humanization A/B switches and the experimental string model — for comparing, not for playing"
+                  title="double tracking, sample banks, the humanization A/B switches and the experimental string model — for comparing, not for playing"
                   onClick={() => setShowAdvanced((v) => { localStorage.setItem("gs.advanced", v ? "0" : "1"); return !v; })}
                 >
                   {showAdvanced ? "▾" : "▸"} experimental
@@ -1662,6 +1649,19 @@ export default function TabEditor() {
               </header>
               {showAdvanced && (
                 <>
+              <div className="rig-row">
+                <span>double track</span>
+                <button
+                  className={`rig-switch ${doubled ? "on" : ""}`}
+                  title="double-track: an independent second take, hard-panned L/R (two extra capture instances when a .nam model is loaded)"
+                  onClick={() => setDoubled((v) => {
+                    localStorage.setItem("gs.double", v ? "0" : "1");
+                    return !v;
+                  })}
+                >
+                  <span className="rig-switch-knob" />
+                </button>
+              </div>
               <div className="rig-row">
                 <span>guitar</span>
                 <select
