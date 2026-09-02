@@ -100,7 +100,7 @@ Each cell holds one token. Strings are numbered 1 (top, highest pitch) to N (bot
 | `m0`, `m3` | Palm-muted chug on that fret. |
 | `x` | Unpitched dead chug. |
 | `*` | One repick of the preceding note on this slot. Repeat `*` cells on a 16th grid for tremolo picking. Works after `m` notes and `x` too. |
-| `=` | Hold the previous note out. |
+| `=` | Hold the previous note out. A picked note rings about a second on its own, then fades; `=` in every slot keeps it sounding past that (a keyboard-sequencer default, on purpose). |
 | `~` | Vibrato on the preceding note (also holds). |
 | `/7` | Slide up into fret 7. |
 | `\7` | Slide down into fret 7. |

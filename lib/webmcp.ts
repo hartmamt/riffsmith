@@ -57,7 +57,7 @@ type ToolDef = {
   execute: (args: Record<string, unknown>) => Promise<unknown>;
 };
 
-const NOTATION = `Cell tokens: fret numbers 0-24; "m0"/"m3" palm-muted chug on that fret; "x" unpitched dead chug; "*" one repick of the preceding note on this slot — repeat "*" cells on a 16th grid for 16th-note tremolo picking (works after m-notes and x too); "=" hold previous note out; "~" vibrato on the preceding note (also holds); "/7" slide up into fret 7; "\\7" slide down into fret 7; "h7" hammer-on to 7, "p5" pull-off to 5, "t12" tap 12 (legato, no pick attack); "^7" pinch harmonic on fret 7 (picked squeal, real recordings on frets 1-12); "b" bends the preceding note up a step, "r" releases it back; "-" empty. Chug riff example: "m0 m0 m0 3 m0 m0 5 =". Tremolo example: "0 * * *".`;
+const NOTATION = `Cell tokens: fret numbers 0-24; "m0"/"m3" palm-muted chug on that fret; "x" unpitched dead chug; "*" one repick of the preceding note on this slot — repeat "*" cells on a 16th grid for 16th-note tremolo picking (works after m-notes and x too); "=" hold the previous note out (a picked note rings about 1 s on its own, then fades — write "=" in every slot it should keep sounding beyond that); "~" vibrato on the preceding note (also holds); "/7" slide up into fret 7; "\\7" slide down into fret 7; "h7" hammer-on to 7, "p5" pull-off to 5, "t12" tap 12 (legato, no pick attack); "^7" pinch harmonic on fret 7 (picked squeal: the overtone over a quiet fundamental); "b" bends the preceding note up a step, "r" releases it back; "-" empty. Chug riff example: "m0 m0 m0 3 m0 m0 5 =". Tremolo example: "0 * * *".`;
 
 function ok(message: string, extra: Record<string, unknown> = {}) {
   return { ok: true, message, ...extra };
