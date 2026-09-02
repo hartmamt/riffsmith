@@ -76,7 +76,7 @@ export class GuitarSampler {
   // + a 0.3 s diffuse tail) on a send after every amp. DI stays dry.
   private master: GainNode | null = null;
   private roomSend: GainNode | null = null;
-  private roomAmount = 0.15;
+  private roomAmount = 0.1;
   private namJson: string | null = null;
   private namMakeupDb = 6;
   // boost pedal in front of the capture (tube-screamer style: low cut, mid
@@ -284,14 +284,16 @@ export class GuitarSampler {
         d[i] += g * (rnd() > 0.5 ? 1 : -1);
         d[i + 1] += g * 0.5 * (rnd() > 0.5 ? 1 : -1); // a little spread per reflection
       }
-      const tau = 0.3 / 6.91; // RT60 → time constant
-      let lp = 0;
+      const tau = 0.22 / 6.91; // RT60 → time constant
+      let lp = 0, lp2 = 0;
       for (let i = Math.floor(0.012 * sr); i < len; i++) {
         const t = i / sr;
-        // the tail's brightness falls with time (air + absorption)
-        const a = Math.exp(-2 * Math.PI * (6000 * Math.exp(-t * 4)) / sr);
+        // the diffuse tail is dark (a cab's room is carpet, drywall and
+        // air) and gets darker as it decays: two one-poles, 2.8 kHz → 900 Hz
+        const a = Math.exp(-2 * Math.PI * (900 + 1900 * Math.exp(-t * 6)) / sr);
         lp = a * lp + (1 - a) * (rnd() * 2 - 1);
-        d[i] += 0.33 * lp * Math.exp(-t / tau);
+        lp2 = a * lp2 + (1 - a) * lp;
+        d[i] += 0.5 * lp2 * Math.exp(-t / tau);
       }
     }
     return buf;

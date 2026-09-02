@@ -237,8 +237,8 @@ export default function TabEditor() {
     samplerRef.current?.setNamInput(namInput);
   }, [namInput]);
   const [room, setRoom] = useState(() =>
-    typeof window === "undefined" ? 0.15 : parseFloat(localStorage.getItem("gs.room") ?? "0.15"));
-  const roomRef = useRef(0.15);
+    typeof window === "undefined" ? 0.1 : parseFloat(localStorage.getItem("gs.room") ?? "0.1"));
+  const roomRef = useRef(0.1);
   useEffect(() => {
     roomRef.current = room;
     localStorage.setItem("gs.room", String(room));

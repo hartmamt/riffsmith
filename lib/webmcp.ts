@@ -568,7 +568,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
           nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
           nam_input: { type: "number", minimum: 0.1, maximum: 2, description: "DI level into the NAM capture (1 = raw sample level; default 0.45 ≈ -7 dB, where captures are trained)" },
-          room: { type: "number", minimum: 0, maximum: 1, description: "the small room around the cab: 0 = bone dry, 0.15 default (a mic'd cab in a live room), 1 = very roomy" },
+          room: { type: "number", minimum: 0, maximum: 1, description: "the small room around the cab: 0 = bone dry, 0.1 default (a mic'd cab in a live room), 1 = very roomy" },
           loop: { type: "boolean" },
         },
         additionalProperties: false,
