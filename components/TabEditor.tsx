@@ -204,6 +204,14 @@ export default function TabEditor() {
   const [playerRules, setPlayerRules] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.rules") !== "0");
   const rulesRef = useRef(true);
+  const [feedback, setFeedback] = useState(() =>
+    typeof window === "undefined" ? false : localStorage.getItem("gs.feedback") === "1");
+  const feedbackRef = useRef(false);
+  useEffect(() => {
+    feedbackRef.current = feedback;
+    localStorage.setItem("gs.feedback", feedback ? "1" : "0");
+    if (samplerRef.current) samplerRef.current.feedback = feedback;
+  }, [feedback]);
   const [landings, setLandings] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.landings") !== "0");
   const landingsRef = useRef(true);
@@ -261,6 +269,7 @@ export default function TabEditor() {
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
       s.legatoLandings = landingsRef.current;
+      s.feedback = feedbackRef.current;
       s.bassRig = bassRigRef.current;
       s.setNamInput(namInputRef.current);
       s.setRoom(roomRef.current);
@@ -895,6 +904,7 @@ export default function TabEditor() {
       note_bank: noteBank,
       player_rules: playerRules,
       legato_landings: landings,
+      feedback,
       bass_rig: bassRig,
       nam_input: namInput,
       room,
@@ -929,6 +939,7 @@ export default function TabEditor() {
       }
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
       if (patch.legato_landings !== undefined) setLandings(patch.legato_landings);
+      if (patch.feedback !== undefined) setFeedback(patch.feedback);
       if (patch.bass_rig !== undefined) setBassRig(patch.bass_rig);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.room !== undefined) setRoom(Math.max(0, Math.min(1, patch.room)));
@@ -1631,6 +1642,16 @@ export default function TabEditor() {
                   className={`rig-switch ${landings ? "on" : ""}`}
                   title="after a hammer-on, pull-off, slide or bend, hand the note over to a real recording of the target pitch (on) or keep the resampled voice (off) — A/B"
                   onClick={() => setLandings(!landings)}
+                >
+                  <span className="rig-switch-knob" />
+                </button>
+              </div>
+              <div className="rig-row">
+                <span>feedback</span>
+                <button
+                  className={`rig-switch ${feedback ? "on" : ""}`}
+                  title="notes held with = or ~ for over a second swell into amp feedback on their overtone (the 12th low down, the octave higher up)"
+                  onClick={() => setFeedback(!feedback)}
                 >
                   <span className="rig-switch-knob" />
                 </button>

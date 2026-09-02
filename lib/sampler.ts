@@ -46,6 +46,7 @@ type StringVoice = {
   bendCents: number;           // current bend offset in cents
   articulation: Articulation;
   vibrato: { lfo: OscillatorNode; depth: GainNode } | null;
+  feedback?: { osc: OscillatorNode; g: GainNode }; // amp feedback swell on a long note
   releaseAt: number;           // when the envelope reaches silence
   holdUntil: number;           // end of the envelope plateau (release ramp starts here)
   level: number;               // body level, for tremolo re-excitation
@@ -105,6 +106,9 @@ export class GuitarSampler {
   // hand legato/bend/slide landings over to a real recording of the target
   // pitch (true) or keep the resampled voice (false) — A/B switch
   legatoLandings = true;
+  // amp feedback: a note held long enough in front of a loud rig starts to
+  // sing its overtone (opt-in — it's a performance choice, not a default)
+  feedback = false;
   // noise layer (part of the player rules): a powered-on floor under the
   // amp, a pick scrape a few ms before each stroke, and the pick-hand thunk
   // when a ringing note is stopped
@@ -801,7 +805,44 @@ export class GuitarSampler {
       v.env.gain.exponentialRampToValueAtTime(0.0001, when + fadeS);
       v.src.stop(when + fadeS * 2);
       if (v.vibrato) { v.vibrato.lfo.stop(when + fadeS * 2); }
+      if (v.feedback) {
+        const fg = v.feedback.g.gain;
+        fg.cancelScheduledValues(when);
+        fg.setValueAtTime(Math.max(0.0001, fg.value), when);
+        fg.exponentialRampToValueAtTime(0.0001, when + Math.max(fadeS, 0.04));
+        v.feedback.osc.stop(when + Math.max(fadeS, 0.04) + 0.01);
+      }
     } catch {}
+  }
+
+  // Feedback: after ~0.7 s the cab pushes the string's 2nd (or, low down,
+  // 3rd) partial back into it and that overtone swells while the pick's
+  // fundamental decays. A slightly unsteady sine into the amp is exactly
+  // what the string is doing then; the amp turns it into the scream.
+  private feedbackSwell(v: StringVoice, midi: number, when: number, level: number, dest: AudioNode) {
+    if (!this.feedback || this.diMode || this.instrument === "bass") return;
+    if (v.releaseAt - when < 1.3) return; // the note has to be held
+    const ctx = this.ctx;
+    const harm = midi < 52 ? 3 : 2;
+    const f0 = 440 * Math.pow(2, (midi - 69) / 12) * harm;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = f0 * (1 + (Math.random() - 0.5) * 0.004);
+    const wob = ctx.createOscillator(); // a little unsteadiness in the pitch
+    wob.frequency.value = 4.5 + Math.random();
+    const wobG = ctx.createGain(); wobG.gain.value = 5; // cents
+    wob.connect(wobG).connect(osc.detune);
+    const g = ctx.createGain();
+    const start = when + 0.65;
+    const top = Math.min(v.releaseAt - 0.1, start + 1.1);
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(level * 0.28, top);
+    g.gain.setValueAtTime(level * 0.28, Math.max(top, v.holdUntil));
+    g.gain.exponentialRampToValueAtTime(0.0001, v.releaseAt);
+    osc.connect(g).connect(dest);
+    osc.start(start); wob.start(start);
+    osc.stop(v.releaseAt + 0.05); wob.stop(v.releaseAt + 0.05);
+    v.feedback = { osc, g };
   }
 
   private stopVoice(si: number, when: number, fast = true, fadeS?: number) {
@@ -1386,6 +1427,7 @@ export class GuitarSampler {
         this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0, Math.max(0.45, Math.min(1, soft)));
       }
       if (!opts.isTwin && !opts.pickless) this.fretClank(when, midi, art, velocity);
+      if (art === "open" && !opts.isTwin) this.feedbackSwell(v, midi, when, level, destNode);
     }
     src.start(when, opts.pickless && art === "open" ? 0.028 : 0);
     if (attackOnly) src.stop(v.releaseAt + 0.05);
