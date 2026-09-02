@@ -169,7 +169,7 @@ export default function TabEditor() {
   const [pmBankInfo, setPmBankInfo] = useState<string | null>(null);
   const [pmSource, setPmSource] = useState<"bassvi" | "gtx" | "custom">(() =>
     typeof window === "undefined" ? "bassvi"
-      : (localStorage.getItem("gs.pmSource") as "gtx" | "custom" | null) ?? "bassvi");
+      : (localStorage.getItem("gs.pmSource") as "bassvi" | "gtx" | "custom" | null) ?? "gtx");
   const pmFileRef = useRef<HTMLInputElement>(null);
   const chugCfgRef = useRef({ tight, muteStr, picking, doubled });
   chugCfgRef.current = { tight, muteStr, picking, doubled };
@@ -197,7 +197,9 @@ export default function TabEditor() {
       // restore persisted setup: pm bank choice, custom samples, NAM model + cab
       s.ready().then(async () => {
         try {
-          const src = localStorage.getItem("gs.pmSource");
+          // default chug source is the real 7-string mutes (Metal GTX); the
+          // flatwound Bass VI bank stays available as a choice
+          const src = localStorage.getItem("gs.pmSource") ?? "gtx";
           if (src === "custom") {
             const recs = await loadPmSamples();
             if (recs.length) {
