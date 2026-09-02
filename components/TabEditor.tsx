@@ -193,6 +193,14 @@ export default function TabEditor() {
     typeof window === "undefined" ? "gtechs" : ((localStorage.getItem("gs.noteBank") as "gtechs" | "fsbs" | null) ?? "gtechs"));
   const noteBankRef = useRef<"gtechs" | "fsbs">("gtechs");
   noteBankRef.current = noteBank;
+  const [playerRules, setPlayerRules] = useState(() =>
+    typeof window === "undefined" ? true : localStorage.getItem("gs.rules") !== "0");
+  const rulesRef = useRef(true);
+  useEffect(() => {
+    rulesRef.current = playerRules;
+    localStorage.setItem("gs.rules", playerRules ? "1" : "0");
+    if (samplerRef.current) samplerRef.current.playerRules = playerRules;
+  }, [playerRules]);
   const pmFileRef = useRef<HTMLInputElement>(null);
   const chugCfgRef = useRef({ tight, muteStr, picking, doubled });
   chugCfgRef.current = { tight, muteStr, picking, doubled };
@@ -211,6 +219,7 @@ export default function TabEditor() {
       const s = new GuitarSampler(audioRef.current);
       samplerRef.current = s;
       s.noteBank = noteBankRef.current;
+      s.playerRules = rulesRef.current;
       if (hybridRef.current) { s.engineMode = "hybrid"; void s.enableHybrid(); }
       s.setLevel(levelRef.current);
       const cfg = chugCfgRef.current;
@@ -564,9 +573,10 @@ export default function TabEditor() {
         // open pick sits ~2.5ms earlier than a chug because a softer attack is
         // perceived later (perceptual-center alignment). Chord notes get their
         // spread from the strum instead of jitter.
+        const rules = rulesRef.current;
         const lowness = Math.max(0, Math.min(1, (64 - a.midi) / 24));
-        const jit = chord ? 0 : (Math.random() - 0.5) * (0.002 + 0.003 * (1 - lowness));
-        const t = when + jit + (a.kind === "pick" ? -0.0025 : 0);
+        const jit = !rules ? (Math.random() - 0.5) * 0.003 : chord ? 0 : (Math.random() - 0.5) * (0.002 + 0.003 * (1 - lowness));
+        const t = when + jit + (rules && a.kind === "pick" ? -0.0025 : 0);
         switch (a.kind) {
           case "pick":
             sampler.pickNote(a.si, a.midi, t, { velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
@@ -635,7 +645,7 @@ export default function TabEditor() {
         if (pos.c >= s.measures[pos.m].cols.length) pos = { ...pos, c: 0 };
         const acts = columnActions(s, pos.m, pos.c);
         const smp = samplerRef.current;
-        const strumming = (s.sound === "guitar" || s.sound === "guitar-di") && smp?.loaded && !legacyRef.current
+        const strumming = (s.sound === "guitar" || s.sound === "guitar-di") && smp?.loaded && !legacyRef.current && rulesRef.current
           ? acts.filter((a) => a.kind === "pick" || a.kind === "palm" || a.kind === "dead" || a.kind === "pinch")
           : [];
         if (smp && strumming.length >= 2) {
@@ -825,6 +835,7 @@ export default function TabEditor() {
       cab: cabOn,
       pm_bank: pmSource,
       note_bank: noteBank,
+      player_rules: playerRules,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
@@ -850,6 +861,7 @@ export default function TabEditor() {
         localStorage.setItem("gs.double", patch.double_track ? "1" : "0");
       }
       if (patch.engine !== undefined) { setLegacyEngine(patch.engine === "old"); setHybridEngine(patch.engine === "hybrid"); }
+      if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
         localStorage.setItem("gs.cabOn", patch.cab ? "1" : "0");
@@ -1478,6 +1490,16 @@ export default function TabEditor() {
                     localStorage.setItem("gs.double", v ? "0" : "1");
                     return !v;
                   })}
+                >
+                  <span className="rig-switch-knob" />
+                </button>
+              </div>
+              <div className="rig-row">
+                <span>player rules</span>
+                <button
+                  className={`rig-switch ${playerRules ? "on" : ""}`}
+                  title="humanization: tension glide, pick-position comb, velocity tone, stroke tilt, pre-pick clamp, micro-timing, chord rakes. Off = plain sampler, for A/B listening"
+                  onClick={() => setPlayerRules(!playerRules)}
                 >
                   <span className="rig-switch-knob" />
                 </button>

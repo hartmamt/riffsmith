@@ -72,6 +72,10 @@ export class GuitarSampler {
 
   // ---- palm-mute character & performance controls ----
   muteStrength = 0.5;                 // 0 loose … 1 tight; 0.5 = raw DI, no damping
+  // Phase 0 "player rules" (tension glide, pick-position comb, velocity tone,
+  // stroke tilt, pre-pick clamp, anti-repetition). Off = the plain sampler,
+  // for A/B listening.
+  playerRules = true;
   pickingMode: "alternate" | "down" | "up" = "alternate";
   private pickDirDown = true;         // GLOBAL per performance, not per string
   doubleTrack = false;                // twin take panned L/R (built-in amp only)
@@ -715,8 +719,8 @@ export class GuitarSampler {
       // the hand lands before the pick: a palm clamps the ringing tail ~4ms
       // early and hard (measured palm pressure peaks just before the pick);
       // a plain re-pick rests the pick on the string ~2ms early
-      const early = art === "palm" ? 0.004 : 0.002;
-      this.stopVoice(si, Math.max(ctx.currentTime, when - early), true, art === "palm" ? 0.005 : 0.015);
+      const early = !this.playerRules ? 0 : art === "palm" ? 0.004 : 0.002;
+      this.stopVoice(si, Math.max(ctx.currentTime, when - early), true, !this.playerRules ? 0.025 : art === "palm" ? 0.005 : 0.015);
     }
 
     // determine stroke BEFORE buffer selection so stroke-tagged banks apply
@@ -778,7 +782,7 @@ export class GuitarSampler {
       // tension glide: start sharp, settle onto the pitch as the string's
       // energy decays (≈180ms open, ≈120ms palm). Later legato/bend automation
       // overrides this with an explicit value, so nothing accumulates.
-      const glide = opts.pickless ? 0 : this.tensionGlideCents(midi, velocity, art);
+      const glide = opts.pickless || !this.playerRules ? 0 : this.tensionGlideCents(midi, velocity, art);
       src.detune.setValueAtTime(shiftCents + glide, when);
       if (glide > 0) src.detune.setTargetAtTime(shiftCents, when, art === "palm" ? 0.04 : 0.06);
     }
@@ -794,7 +798,17 @@ export class GuitarSampler {
 
     const env = ctx.createGain();
     let out: AudioNode = env;
-    if (art === "palm") {
+    if (!this.playerRules) {
+      // plain sampler: the pre-Phase-0 static shelf on tight mutes, nothing else
+      if (art === "palm" && this.muteStrength > 0.5) {
+        const shelf = ctx.createBiquadFilter();
+        shelf.type = "highshelf";
+        shelf.frequency.value = 3000;
+        shelf.gain.value = -14 * (this.muteStrength - 0.5) * 2;
+        env.connect(shelf);
+        out = shelf;
+      }
+    } else if (art === "palm") {
       // palm-mute pressure TRAJECTORY (Biral et al. 2014): the palm eases off
       // at the pick so the transient is bright, then re-clamps over 50–140ms.
       // Grip sets how far and how fast it closes; a harder pick keeps a
@@ -824,12 +838,12 @@ export class GuitarSampler {
       env.connect(tone);
       out = tone;
     }
-    if (art !== "dead" && !opts.pickless && !opts.glideDur) {
+    if (this.playerRules && art !== "dead" && !opts.pickless && !opts.glideDur) {
       out = this.pickPositionComb(out, midi, art, when);
     }
     if (art !== "dead") {
       // spectral stroke character (real stroke samples add to this)
-      const color = this.strokeColor(stroke, (Math.random() - 0.5) * 1.2);
+      const color = this.strokeColor(stroke, this.playerRules ? (Math.random() - 0.5) * 1.2 : 0);
       out.connect(color);
       out = color;
     }
@@ -945,15 +959,15 @@ export class GuitarSampler {
     if (art !== "dead") {
       // anti-repetition: ±3 cents at the onset only, settling within ~40ms
       const base = (midi - sampleMidi) * 100;
-      src.detune.setValueAtTime(base + (Math.random() - 0.5) * 6, when);
-      src.detune.setTargetAtTime(base, when, 0.015);
+      src.detune.setValueAtTime(base + (this.playerRules ? (Math.random() - 0.5) * 6 : 0), when);
+      if (this.playerRules) src.detune.setTargetAtTime(base, when, 0.015);
     }
 
     const env = ctx.createGain();
     const strokeGain = stroke === "d" ? 1 : 0.93;
     // 0.82 headroom: strokes sum with the ringing body without buildup;
     // ±0.3dB per stroke so no two strokes are identical
-    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82 * Math.pow(10, (Math.random() - 0.5) * 0.06) * (hybridStroke ? 0.7 : 1);
+    const level = (0.55 + 0.45 * velocity) * strokeGain * 0.82 * (this.playerRules ? Math.pow(10, (Math.random() - 0.5) * 0.06) : 1) * (hybridStroke ? 0.7 : 1);
     const bodyEnd = when + 0.055;
     const relEnd = bodyEnd + 0.08;
     env.gain.setValueAtTime(level, when); // instant attack, transient intact
@@ -962,7 +976,7 @@ export class GuitarSampler {
 
     let out: AudioNode = env;
     if (art !== "dead") {
-      const color = this.strokeColor(stroke, (Math.random() - 0.5) * 1.6);
+      const color = this.strokeColor(stroke, this.playerRules ? (Math.random() - 0.5) * 1.6 : 0);
       out.connect(color);
       out = color;
     }
