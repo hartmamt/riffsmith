@@ -297,6 +297,11 @@ export class GuitarSampler {
     const input = ctx.createGain();
     input.gain.value = 1;
 
+    const pre = ctx.createBiquadFilter(); // pickup/cable roll-off: DI has nothing useful above ~7 kHz
+    pre.type = "lowpass";
+    pre.frequency.value = 7500;
+    pre.Q.value = 0.5;
+
     const tighten = ctx.createBiquadFilter();
     tighten.type = "highpass";
     tighten.Q.value = 0.7;
@@ -347,7 +352,7 @@ export class GuitarSampler {
     comp.attack.value = 0.004;
     comp.release.value = 0.18;
 
-    input.connect(tighten).connect(midEmph).connect(drive).connect(shaper).connect(hp).connect(scoop)
+    input.connect(pre).connect(tighten).connect(midEmph).connect(drive).connect(shaper).connect(hp).connect(scoop)
       .connect(presence).connect(cab).connect(post).connect(comp);
     if (pan !== undefined) {
       const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
@@ -736,6 +741,7 @@ export class GuitarSampler {
       gap?: number;           // time to the next hit on this string (PM decay)
       isTwin?: boolean;       // internal: double-track satellite voice
       stroke?: "d" | "u";     // chord: stroke already chosen by beginStroke()
+      repick?: boolean;       // tremolo stroke: the pick stops and restarts the string
     } = {}
   ) {
     if (!this.ampIn) return;
@@ -746,8 +752,8 @@ export class GuitarSampler {
       // the hand lands before the pick: a palm clamps the ringing tail ~4ms
       // early and hard (measured palm pressure peaks just before the pick);
       // a plain re-pick rests the pick on the string ~2ms early
-      const early = !this.playerRules ? 0 : art === "palm" ? 0.004 : 0.002;
-      this.stopVoice(si, Math.max(ctx.currentTime, when - early), true, !this.playerRules ? 0.025 : art === "palm" ? 0.005 : 0.015);
+      const early = opts.repick || !this.playerRules ? 0 : art === "palm" ? 0.004 : 0.002;
+      this.stopVoice(si, Math.max(ctx.currentTime, when - early), true, opts.repick ? 0.012 : !this.playerRules ? 0.025 : art === "palm" ? 0.005 : 0.015);
     }
 
     // determine stroke BEFORE buffer selection so stroke-tagged banks apply
@@ -927,7 +933,9 @@ export class GuitarSampler {
     // no early src.stop: the envelope gates it, so legato can extend the voice
     if (!opts.isTwin && !attackOnly) {
       this.voices.set(si, v);
-      if (opts.vibrato && (art === "open" || art === "pinch")) this.attachVibrato(v, when + (opts.glideDur ?? 0.1));
+      let landed: StringVoice | null = null;
+      if (art === "open" && opts.glideFromMidi !== undefined && opts.glideDur) landed = this.swapVoice(si, midi, 0, when + opts.glideDur, 0.06);
+      if (opts.vibrato && (art === "open" || art === "pinch")) this.attachVibrato(landed ?? v, when + (opts.glideDur ?? 0.1));
       if (doubled) {
         // independent second take: own RR, own pick position, 2-6ms late,
         // its own velocity and a slow pitch drift (in shiftCents)
@@ -955,6 +963,14 @@ export class GuitarSampler {
     const ctx = this.ctx;
     const art = opts.articulation ?? "open";
     const velocity = opts.velocity ?? 1;
+
+    if (!(this.engineMode === "hybrid" && this.stringNode)) {
+      // sampled engine: a tremolo stroke is a whole new note (round robin,
+      // own pick) with a 12 ms handover from the one it stops — no stacked
+      // snippets, no comb filtering, no machine-gun transient
+      this.pickNote(si, midi, when, { articulation: art, velocity: velocity * 0.96, repick: true });
+      return;
+    }
 
     const stroke = this.nextStroke(true);
     this.pickStroke = stroke;
@@ -1091,6 +1107,63 @@ export class GuitarSampler {
     }
   }
 
+  /**
+   * Land on a REAL recording of the new pitch. A resampled voice is fine for
+   * the 20-200 ms of a transition, but held shifted samples buzz (linear
+   * interpolation imaging, then the amp), so once a bend, release, slide or
+   * hammer-on settles we crossfade into a fresh sample of the target pitch
+   * started past its pick. `heldMidi`/`heldCents` describe what the new voice
+   * represents (a bent note keeps its original pitch + bendCents so a later
+   * release still knows where home is).
+   */
+  private swapVoice(si: number, heldMidi: number, heldCents: number, when: number, fadeS = 0.06, levelScale = 1): StringVoice | null {
+    if (this.engineMode === "hybrid") return null;
+    const v = this.voices.get(si);
+    if (!v || v.articulation !== "open") return null;
+    const target = heldMidi + Math.round(heldCents / 100);
+    const { buffer, root } = this.openBuffer(target, 0.9, si);
+    if (!buffer) return null;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.detune.value = (target - root) * 100;
+    const env = ctx.createGain();
+    const lvl = Math.max(0.0001, (v.level || 0.7) * levelScale);
+    const ringLeft = Math.max(0.35, v.releaseAt - when);
+    // linear crossfade in/out: exponential ramps leave a hole at the midpoint
+    env.gain.setValueAtTime(0, when);
+    env.gain.linearRampToValueAtTime(lvl, when + fadeS);
+    env.gain.setValueAtTime(lvl, when + Math.max(fadeS, ringLeft * 0.7));
+    env.gain.exponentialRampToValueAtTime(0.0001, when + ringLeft);
+    const color = this.strokeColor(this.pickStroke ?? "d", 0);
+    src.connect(env);
+    env.connect(color);
+    color.connect(this.dest());
+    // start the fresh recording at the same point in ITS decay as the note it
+    // replaces, so level and timbre match without guessing an envelope
+    const elapsed = Math.max(0, when - v.startedAt);
+    const offset = Math.min(0.03 + elapsed, Math.max(0.03, buffer.duration - 0.6));
+    src.start(when, offset);
+    src.stop(when + ringLeft + 0.1);
+    // the shifted voice hands over
+    try {
+      const g = v.env.gain;
+      g.cancelScheduledValues(when);
+      g.setValueAtTime(lvl, when);
+      g.linearRampToValueAtTime(0, when + fadeS);
+      v.src.stop(when + fadeS + 0.05);
+      if (v.vibrato) v.vibrato.lfo.stop(when + fadeS + 0.05);
+    } catch {}
+    const nv: StringVoice = {
+      src, env, sampleMidi: root, currentMidi: heldMidi, bendCents: heldCents,
+      articulation: "open", vibrato: null, releaseAt: when + ringLeft, level: lvl,
+      // startedAt is back-dated by the offset so a later swap keeps decaying from here
+      startedAt: when - (offset - 0.03),
+    };
+    this.voices.set(si, nv);
+    return nv;
+  }
+
   /** Continue the ringing voice at a new pitch — one pick per phrase. */
   legatoTo(
     si: number, midi: number, when: number,
@@ -1129,7 +1202,8 @@ export class GuitarSampler {
     g.setValueAtTime(lvl, when + 0.06);
     g.exponentialRampToValueAtTime(0.0001, when + ring);
     v.releaseAt = when + ring;
-    if (opts.vibrato) this.attachVibrato(v, when + 0.08);
+    const nv = this.swapVoice(si, midi, 0, when + ramp + 0.01, 0.05, style === "pull" ? 0.8 : 1);
+    if (opts.vibrato) this.attachVibrato(nv ?? v, when + 0.08);
   }
 
   /** Bend the ringing note by `cents` (default +200); release with cents=0. */
@@ -1163,7 +1237,8 @@ export class GuitarSampler {
     g.setValueAtTime(cur, when + ring * 0.6);
     g.exponentialRampToValueAtTime(0.0001, when + ring);
     v.releaseAt = when + ring;
-    if (opts.vibrato) this.attachVibrato(v, when + dur);
+    const nv = this.swapVoice(si, v.currentMidi, cents, when + dur, 0.06);
+    if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02);
   }
 
   /** Slide the ringing voice to a new pitch (same continuous machinery). */
@@ -1194,7 +1269,8 @@ export class GuitarSampler {
     g.setValueAtTime(cur * 0.95, when + ring * 0.6);
     g.exponentialRampToValueAtTime(0.0001, when + ring);
     v.releaseAt = when + ring;
-    if (opts.vibrato) this.attachVibrato(v, when + dur);
+    const nv = this.swapVoice(si, midi, 0, when + dur, 0.06);
+    if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02);
   }
 
   /** Vibrato on whatever is ringing (used when "~" follows legato/bends). */
@@ -1435,15 +1511,16 @@ export class GuitarSampler {
 
   private makeBoost(): { input: AudioNode; output: AudioNode } {
     const ctx = this.ctx;
+    const pre = ctx.createBiquadFilter(); pre.type = "lowpass"; pre.frequency.value = 7500; pre.Q.value = 0.5; // pickup/cable roll-off
     const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.Q.value = 0.5;
     const mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 800; mid.Q.value = 0.7;
     const clip = ctx.createWaveShaper(); clip.oversample = "2x";
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5500; lp.Q.value = 0.6;
-    hp.connect(mid).connect(clip).connect(lp);
+    pre.connect(hp).connect(mid).connect(clip).connect(lp);
     const b = { hp, mid, clip, lp };
     this.boosts.push(b);
     this.applyBoost(b, this.tightAmt);
-    return { input: hp, output: lp };
+    return { input: pre, output: lp };
   }
 
   private applyBoost(b: { hp: BiquadFilterNode; mid: BiquadFilterNode; clip: WaveShaperNode; lp: BiquadFilterNode }, t: number) {
