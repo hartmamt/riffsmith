@@ -51,7 +51,7 @@ library (persists across reloads), and an agent can switch between them:
 
 ## Source
 
-Repo: [REPO URL] — `npm install && npm run dev`, `npm test` runs the 29-test
+Repo: https://github.com/hartmamt/riffsmith — `npm install && npm run dev`, `npm test` runs the 29-test
 suite over the scheduling/import layer. WebMCP implementation:
 `lib/webmcp.ts` (tool definitions, serialized queue, read-after-write
 consistency, early registration).
