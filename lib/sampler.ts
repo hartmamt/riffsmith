@@ -1248,7 +1248,9 @@ export class GuitarSampler {
       // at the pick so the transient is bright, then re-clamps over 50–140ms.
       // Grip sets how far and how fast it closes; a harder pick keeps a
       // little more top. This replaces the old static high shelf.
-      const m = this.muteStrength;
+      // no two chugs in a run get exactly the same palm: grip wanders ±6 %
+      // and the re-clamp time ±15 % from hit to hit (the twin take has its own)
+      const m = Math.max(0, Math.min(1, this.muteStrength + (Math.random() - 0.5) * 0.12));
       const tone = ctx.createBiquadFilter();
       tone.type = "lowpass";
       tone.Q.value = 0.6;
@@ -1256,7 +1258,7 @@ export class GuitarSampler {
       // above 1 kHz), so a tight grip has to close well into the 400–1k band
       // to be audible; roundwound banks (GTX / custom) show the full sweep
       const endHz = 6000 * Math.pow(0.12, m) + 300 * velocity; // 0 → 6 kHz · 0.5 → 2.1 kHz · 1 → 0.7 kHz
-      const closeS = 0.14 - 0.09 * m;
+      const closeS = (0.14 - 0.09 * m) * (1 + (Math.random() - 0.5) * 0.3);
       tone.frequency.setValueAtTime(12000, when);
       tone.frequency.setValueAtTime(12000, when + 0.008);
       tone.frequency.exponentialRampToValueAtTime(endHz, when + 0.008 + closeS);
