@@ -1207,6 +1207,18 @@ export class GuitarSampler {
    * represents (a bent note keeps its original pitch + bendCents so a later
    * release still knows where home is).
    */
+  // RMS of a buffer over `win` seconds starting at `offset` (for matching a
+  // handover to what the outgoing recording is doing at that moment)
+  private bufRms(buffer: AudioBuffer, offset: number, win = 0.04): number {
+    const ch = buffer.getChannelData(0);
+    const a = Math.max(0, Math.min(ch.length - 1, Math.round(offset * buffer.sampleRate)));
+    const b = Math.min(ch.length, a + Math.round(win * buffer.sampleRate));
+    if (b <= a) return 0;
+    let e = 0;
+    for (let i = a; i < b; i++) e += ch[i] * ch[i];
+    return Math.sqrt(e / (b - a));
+  }
+
   private swapVoice(si: number, heldMidi: number, heldCents: number, when: number, fadeS = 0.06, levelScale = 1): StringVoice | null {
     if (this.engineMode === "hybrid") return null;
     const v = this.voices.get(si);
@@ -1234,6 +1246,22 @@ export class GuitarSampler {
     // replaces, so level and timbre match without guessing an envelope
     const elapsed = Math.max(0, when - v.startedAt);
     const offset = Math.min(0.03 + elapsed, Math.max(0.03, buffer.duration - 0.6));
+    // different notes decay differently (an open string outlives a fretted
+    // one), so match the incoming recording's energy to the outgoing one's
+    // at their respective positions instead of trusting the offset alone
+    const oldBuf = v.src.buffer;
+    if (oldBuf) {
+      const rOld = this.bufRms(oldBuf, elapsed + 0.03);
+      const rNew = this.bufRms(buffer, offset);
+      if (rOld > 1e-5 && rNew > 1e-5) {
+        const ratio = Math.max(0.2, Math.min(3, rOld / rNew));
+        env.gain.cancelScheduledValues(when);
+        env.gain.setValueAtTime(0, when);
+        env.gain.linearRampToValueAtTime(lvl * ratio, when + fadeS);
+        env.gain.setValueAtTime(lvl * ratio, when + Math.max(fadeS, ringLeft * 0.7));
+        env.gain.exponentialRampToValueAtTime(0.0001, when + ringLeft);
+      }
+    }
     src.start(when, offset);
     src.stop(when + ringLeft + 0.1);
     // the shifted voice hands over
@@ -1285,7 +1313,7 @@ export class GuitarSampler {
       g.linearRampToValueAtTime(cur * 0.8, when + 0.015);
       g.linearRampToValueAtTime(cur * 0.92, when + 0.05);
     }
-    this.fretImpact(when, style === "tap" ? 0.09 : style === "hammer" ? 0.055 : 0.03);
+    this.fretImpact(when, style === "tap" ? 0.08 : style === "hammer" ? 0.04 : 0.012);
     // refresh the ring so the new note doesn't die on the old envelope
     const ring = 0.9 + (opts.sustain ?? 0);
     const lvl = Math.max(0.0001, v.env.gain.value) * (style === "pull" ? 0.92 : 0.97);
@@ -1559,7 +1587,7 @@ export class GuitarSampler {
     }
     // the fret termination moves: pitch glides over 12–25 ms, plus the impact
     this.sset(si, SP.FREQ, midiToHz(midi), style === "hammer" ? 18 : style === "pull" ? 25 : 12, when);
-    this.fretImpact(when, style === "tap" ? 0.09 : style === "hammer" ? 0.055 : 0.03);
+    this.fretImpact(when, style === "tap" ? 0.08 : style === "hammer" ? 0.04 : 0.012);
     if (style === "pull") {
       // the finger leaving the string damps it briefly
       this.sset(si, SP.MUTE, 0.35, 0, when);
