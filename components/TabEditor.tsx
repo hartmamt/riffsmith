@@ -11,7 +11,7 @@ import { GuitarSampler } from "@/lib/sampler";
 import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf,
 } from "@/lib/schedule";
-import { makeChugAuditionSong, makeStarterSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
+import { makeChugAuditionSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
 const STORE_KEY = "guitarscrobble.songs.v1";
@@ -946,6 +946,22 @@ export default function TabEditor() {
               }}
             >
               tremolo audition
+            </button>
+            <button
+              className="btn audition-item"
+              title="create the string-model audition song: one articulation per section, for A/B-ing the hybrid engine"
+              onClick={() => {
+                const t = makeStringAuditionSong();
+                setSongs((prev) => {
+                  const rest = (prev ?? []).filter((s) => s.title !== "String Model Audition");
+                  return [t, ...rest];
+                });
+                setActiveId(t.id);
+                setSel({ m: 0, c: 0, s: 0 });
+                ensureSampler().ready();
+              }}
+            >
+              string model audition
             </button>
           </div>
         )}

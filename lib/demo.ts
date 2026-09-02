@@ -150,3 +150,53 @@ export function makeTechniqueTestSong(): Song {
     updatedAt: Date.now(),
   };
 }
+
+// String-model audition: one articulation per section, so the "hybrid ·
+// string model" engine can be A/B'd against "new · voices" phrase by phrase.
+// Drop B. Strings top→bottom: 0 C#4 · 1 G#3 · 2 E3 · 3 B2 · 4 F#2 · 5 B1.
+export function makeStringAuditionSong(): Song {
+  const tuning = [...TUNING_PRESETS["Drop B"]];
+  const B1 = 5, F2 = 4, B2 = 3, E3 = 2, G3 = 1;
+  const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string) =>
+    barLines(tuning, lines, sig, spb, label);
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: "String Model Audition",
+    artist: "RiffSmith",
+    bpm: 150,
+    tuning,
+    sound: "guitar",
+    measures: [
+      // 1 · sustain and vibrato: the ring-out is 100% model after ~120 ms
+      bl({ [B1]: "0 = = = = ~ = =" }, "4/4", 2, "1 · SUSTAIN + VIBRATO (model owns the tail)"),
+      bl({ [F2]: "5 = = = ~ = = =" }, "4/4", 2),
+      bl({ [E3]: "7 = = ~ = = = =" }, "4/4", 2),
+      // 2 · legato: one pick, the termination moves
+      bl({ [B1]: "0 h2 h3 h5 p3 p2 p0 =" }, "4/4", 2, "2 · LEGATO RUNS (one pick per bar)"),
+      bl({ [F2]: "0 h2 h3 h5 p3 p2 p0 =" }, "4/4", 2),
+      bl({ [E3]: "5 h7 h9 p7 p5 ~ = =" }, "4/4", 2),
+      // 3 · slides: continuous pitch on the same vibration
+      bl({ [B1]: "0 /5 = /7 = \\5 = =" }, "4/4", 2, "3 · SLIDES"),
+      bl({ [F2]: "2 /4 = /7 = = \\2 =" }, "4/4", 2),
+      // 4 · bends: tension, not retuned recordings
+      bl({ [E3]: "7 b = r = = = =" }, "4/4", 2, "4 · BENDS + RELEASE"),
+      bl({ [E3]: "9 b = = ~ = = =" }, "4/4", 2),
+      bl({ [B2]: "5 b = r 5 b = r" }, "4/4", 2),
+      // 5 · tremolo: the same string re-excited
+      bl({ [B1]: "0 * * * * * * * 3 * * * 5 * * *" }, "4/4", 4, "5 · TREMOLO (re-excited loop)"),
+      bl({ [F2]: "0 * * * * * * * 2 * * * 3 * * *" }, "4/4", 4),
+      // 6 · chugs: palm pressure as a lossy contact
+      bl({ [B1]: "m0 m0 m0 m0 m0 m0 m0 m0" }, "4/4", 2, "6 · CHUGS (mute = contact)"),
+      bl({ [B1]: "m0 m0 x m0 m0 x 3 m0" }, "4/4", 2),
+      // 7 · power chords, let ring: bridge coupling and beating
+      bl({ [B1]: "0 = = = . 3 = =", [F2]: "0 = = = . 3 = =", [B2]: "0 = = = . 3 = =" }, "4/4", 2, "7 · POWER CHORDS, LET RING"),
+      bl({ [B1]: "5 = = = = = = =", [F2]: "5 = = = = = = =", [B2]: "5 = = = = = = =" }, "4/4", 2),
+      // 8 · a lead phrase mixing everything
+      bl({ [E3]: "7 h9 = /12 ~ = = =" }, "4/4", 2, "8 · LEAD PHRASE"),
+      bl({ [E3]: "10 p9 p7 = . 5 b =", [G3]: ". . . . . . . ." }, "4/4", 2),
+      bl({ [E3]: "r = = = 7 ~ = =" }, "4/4", 2),
+      bl({ [B2]: "7 /9 = = = ~ = =" }, "4/4", 2),
+    ],
+    updatedAt: Date.now(),
+  };
+}
