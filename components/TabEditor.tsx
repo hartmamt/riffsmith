@@ -804,6 +804,7 @@ export default function TabEditor() {
       return "Guitar-TECHS bank not available";
     }
     if (v === "bassvi") {
+      await s.ensureBassVi();
       s.clearCustomPm();
       setPmSource("bassvi");
       setPmBankInfo(null);
@@ -824,8 +825,9 @@ export default function TabEditor() {
     setNoteBankState(v);
     localStorage.setItem("gs.noteBank", v);
     if (samplerRef.current) samplerRef.current.noteBank = v;
+    if (v === "fsbs") await ensureSampler().ensureFsbs(); // streamed in the background; make sure it's here
     return v === "gtechs" ? "LP humbucker (Guitar-TECHS)" : "Fender single-coil (FreePats)";
-  }, []);
+  }, [ensureSampler]);
 
   // Switch the NAM capture among the models already stored in this browser
   // (or back to the built-in amp). Adding a new file still needs the picker.

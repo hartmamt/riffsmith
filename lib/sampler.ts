@@ -318,10 +318,13 @@ export class GuitarSampler {
         urls.push([`m${i}_rr2`, `${BASE}/emily/m${i}_rr2.wav`]);
         urls.push([`m${i}_rr3`, `${BASE}/emily/m${i}_rr3.wav`]);
       }
+      // the built-in Bass VI mutes (4.6 MB of WAV) are the fallback bank, so
+      // they stream in AFTER the first play is possible, not before
+      const bassvi: [string, string][] = [];
       for (const m of PM_ROOTS) {
         for (const v of [2, 3]) {
           for (const r of [1, 2, 3]) {
-            urls.push([`pm${m}_v${v}_rr${r}`, `${BASE}/pm/pm${m}_v${v}_rr${r}.wav`]);
+            bassvi.push([`pm${m}_v${v}_rr${r}`, `${BASE}/pm/pm${m}_v${v}_rr${r}.wav`]);
           }
         }
       }
@@ -364,14 +367,34 @@ export class GuitarSampler {
           await Promise.all(jobs.map(load));
         } catch {}
       };
-      this.loading = Promise.all([...urls.map(load), loadFsbs(), loadGt()])
-        .then(async () => {
+      this.ensureFsbs = () => {
+        if (!this.fsbsLoading) this.fsbsLoading = loadFsbs().then(async () => {
           if (!this.buffers.has("f40_h_rr1")) await Promise.all(emilyNotes.map(load));
-        })
-        .then(() => this.buildAmp());
+        });
+        return this.fsbsLoading;
+      };
+      this.ensureBassVi = () => {
+        if (!this.bassViLoading) this.bassViLoading = Promise.all(bassvi.map(load)).then(() => undefined);
+        return this.bassViLoading;
+      };
+      // first play needs the Guitar-TECHS notes and the muting noises (~8 MB);
+      // the amp is built as soon as they land. The Fender bank and the
+      // built-in mutes (another ~8 MB) follow in the background so the
+      // fallbacks exist a few seconds later without gating the first note.
+      // Selecting them in the rig awaits them explicitly.
+      const first = this.noteBank === "fsbs" ? [...urls.map(load), loadGt(), this.ensureFsbs()] : [...urls.map(load), loadGt()];
+      this.loading = Promise.all(first)
+        .then(() => this.buildAmp())
+        .then(() => { void this.ensureFsbs(); void this.ensureBassVi(); });
     }
     return this.loading;
   }
+
+  // lazily loaded banks (assigned inside ready())
+  private fsbsLoading: Promise<void> | null = null;
+  private bassViLoading: Promise<void> | null = null;
+  ensureFsbs: () => Promise<void> = () => this.ready().then(() => this.ensureFsbs());
+  ensureBassVi: () => Promise<void> = () => this.ready().then(() => this.ensureBassVi());
 
   get loaded(): boolean {
     return this.ampIn !== null;
