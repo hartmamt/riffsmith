@@ -204,6 +204,14 @@ export default function TabEditor() {
   const [playerRules, setPlayerRules] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.rules") !== "0");
   const rulesRef = useRef(true);
+  const [landings, setLandings] = useState(() =>
+    typeof window === "undefined" ? true : localStorage.getItem("gs.landings") !== "0");
+  const landingsRef = useRef(true);
+  useEffect(() => {
+    landingsRef.current = landings;
+    localStorage.setItem("gs.landings", landings ? "1" : "0");
+    if (samplerRef.current) samplerRef.current.legatoLandings = landings;
+  }, [landings]);
   const [namInput, setNamInput] = useState(() =>
     typeof window === "undefined" ? 0.45 : parseFloat(localStorage.getItem("gs.namInput") ?? "0.45"));
   const namInputRef = useRef(0.45);
@@ -236,6 +244,7 @@ export default function TabEditor() {
       samplerRef.current = s;
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
+      s.legatoLandings = landingsRef.current;
       s.setNamInput(namInputRef.current);
       s.hybridSampleAttack = !modelOnlyRef.current;
       if (hybridRef.current) { s.engineMode = "hybrid"; armHybrid(s); }
@@ -857,6 +866,7 @@ export default function TabEditor() {
       pm_bank: pmSource,
       note_bank: noteBank,
       player_rules: playerRules,
+      legato_landings: landings,
       nam_input: namInput,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
@@ -888,6 +898,7 @@ export default function TabEditor() {
         setModelOnly(patch.engine === "model");
       }
       if (patch.player_rules !== undefined) setPlayerRules(patch.player_rules);
+      if (patch.legato_landings !== undefined) setLandings(patch.legato_landings);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
@@ -1538,6 +1549,16 @@ export default function TabEditor() {
                   className={`rig-switch ${playerRules ? "on" : ""}`}
                   title="humanization: tension glide, pick-position comb, velocity tone, stroke tilt, pre-pick clamp, micro-timing, chord rakes. Off = plain sampler, for A/B listening"
                   onClick={() => setPlayerRules(!playerRules)}
+                >
+                  <span className="rig-switch-knob" />
+                </button>
+              </div>
+              <div className="rig-row">
+                <span>legato landings</span>
+                <button
+                  className={`rig-switch ${landings ? "on" : ""}`}
+                  title="after a hammer-on, pull-off, slide or bend, hand the note over to a real recording of the target pitch (on) or keep the resampled voice (off) — A/B"
+                  onClick={() => setLandings(!landings)}
                 >
                   <span className="rig-switch-knob" />
                 </button>

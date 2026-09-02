@@ -94,6 +94,9 @@ export class GuitarSampler {
   // stroke tilt, pre-pick clamp, anti-repetition). Off = the plain sampler,
   // for A/B listening.
   playerRules = true;
+  // hand legato/bend/slide landings over to a real recording of the target
+  // pitch (true) or keep the resampled voice (false) — A/B switch
+  legatoLandings = true;
   // noise layer (part of the player rules): a powered-on floor under the
   // amp, a pick scrape a few ms before each stroke, and the pick-hand thunk
   // when a ringing note is stopped
@@ -740,14 +743,18 @@ export class GuitarSampler {
     const ctx = this.ctx;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = 2600;
-    bp.Q.value = 1.2;
+    // the finger landing on the fret: a short low thud, not a click (a 2.6 kHz
+    // burst reads as a pick through a high-gain amp)
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 700;
+    lp.Q.value = 0.7;
     const g = ctx.createGain();
-    g.gain.value = level;
-    src.connect(bp).connect(g).connect(this.dest());
+    g.gain.setValueAtTime(level * 0.6, when);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.02);
+    src.connect(lp).connect(g).connect(this.dest());
     src.start(when);
+    src.stop(when + 0.03);
   }
 
   private attachVibrato(v: StringVoice, when: number) {
@@ -1220,7 +1227,7 @@ export class GuitarSampler {
   }
 
   private swapVoice(si: number, heldMidi: number, heldCents: number, when: number, fadeS = 0.06, levelScale = 1): StringVoice | null {
-    if (this.engineMode === "hybrid") return null;
+    if (this.engineMode === "hybrid" || !this.legatoLandings) return null;
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open") return null;
     const target = heldMidi + Math.round(heldCents / 100);

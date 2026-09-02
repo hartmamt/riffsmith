@@ -27,6 +27,7 @@ export type RigState = {
   pm_bank: "bassvi" | "gtx" | "gtechs" | "custom";
   note_bank: "gtechs" | "fsbs";
   player_rules: boolean;
+  legato_landings: boolean;
   nam_input: number;
   nam_model: string | null;
   nam_models: string[];
@@ -556,6 +557,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           double_track: { type: "boolean" },
           engine: { type: "string", enum: ["new", "old", "hybrid", "model"] },
           player_rules: { type: "boolean", description: "performance humanization (tension glide, pick comb, velocity tone, micro-timing, chord rakes); false = plain sampler" },
+          legato_landings: { type: "boolean", description: "hand legato/bend/slide landings over to a real recording of the target pitch (true) or keep the resampled voice (false)" },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["gtechs", "gtx", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (standard tuning), gtx = 7-string (drop tunings), bassvi, custom" },
           note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
@@ -579,7 +581,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (!["alternate", "down", "up"].includes(String(args.picking))) return fail("picking must be alternate, down, or up.");
           patch.picking = args.picking;
         }
-        for (const k of ["double_track", "cab", "loop", "player_rules"] as const) {
+        for (const k of ["double_track", "cab", "loop", "player_rules", "legato_landings"] as const) {
           if (args[k] !== undefined) patch[k] = Boolean(args[k]);
         }
         if (args.engine !== undefined) {
