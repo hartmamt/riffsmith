@@ -228,6 +228,14 @@ export default function TabEditor() {
     localStorage.setItem("gs.namInput", String(namInput));
     samplerRef.current?.setNamInput(namInput);
   }, [namInput]);
+  const [room, setRoom] = useState(() =>
+    typeof window === "undefined" ? 0.15 : parseFloat(localStorage.getItem("gs.room") ?? "0.15"));
+  const roomRef = useRef(0.15);
+  useEffect(() => {
+    roomRef.current = room;
+    localStorage.setItem("gs.room", String(room));
+    samplerRef.current?.setRoom(room);
+  }, [room]);
   useEffect(() => {
     rulesRef.current = playerRules;
     localStorage.setItem("gs.rules", playerRules ? "1" : "0");
@@ -255,6 +263,7 @@ export default function TabEditor() {
       s.legatoLandings = landingsRef.current;
       s.bassRig = bassRigRef.current;
       s.setNamInput(namInputRef.current);
+      s.setRoom(roomRef.current);
       s.hybridSampleAttack = !modelOnlyRef.current;
       if (hybridRef.current) { s.engineMode = "hybrid"; armHybrid(s); }
       s.setLevel(levelRef.current);
@@ -622,18 +631,21 @@ export default function TabEditor() {
         const lowness = Math.max(0, Math.min(1, (64 - a.midi) / 24));
         const jit = !rules ? (Math.random() - 0.5) * 0.003 : chord ? 0 : (Math.random() - 0.5) * (0.002 + 0.003 * (1 - lowness));
         const t = when + jit + (rules && a.kind === "pick" ? -0.0025 : 0);
+        // no two picks land with the same force (the metric accents are in
+        // a.velocity already; this is the hand's ±2.5% scatter on top)
+        const vel = rules && !chord ? Math.max(0.5, Math.min(1, a.velocity + (Math.random() - 0.5) * 0.05)) : a.velocity;
         switch (a.kind) {
           case "pick":
-            sampler.pickNote(a.si, a.midi, t, { velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
+            sampler.pickNote(a.si, a.midi, t, { velocity: vel, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
             break;
           case "palm":
-            sampler.pickNote(a.si, a.midi, t, { articulation: "palm", velocity: a.velocity, gap: a.gap, stroke: chord?.stroke });
+            sampler.pickNote(a.si, a.midi, t, { articulation: "palm", velocity: vel, gap: a.gap, stroke: chord?.stroke });
             break;
           case "dead":
-            sampler.pickNote(a.si, a.midi, t, { articulation: "dead", velocity: a.velocity, stroke: chord?.stroke });
+            sampler.pickNote(a.si, a.midi, t, { articulation: "dead", velocity: vel, stroke: chord?.stroke });
             break;
           case "pinch":
-            sampler.pickNote(a.si, a.midi, t, { articulation: "pinch", velocity: a.velocity, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
+            sampler.pickNote(a.si, a.midi, t, { articulation: "pinch", velocity: vel, sustain: a.sustain, vibrato: a.vibrato, stroke: chord?.stroke });
             break;
           case "repick":
             // overlapping stroke — the ringing body continues underneath
@@ -885,6 +897,7 @@ export default function TabEditor() {
       legato_landings: landings,
       bass_rig: bassRig,
       nam_input: namInput,
+      room,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
@@ -918,6 +931,7 @@ export default function TabEditor() {
       if (patch.legato_landings !== undefined) setLandings(patch.legato_landings);
       if (patch.bass_rig !== undefined) setBassRig(patch.bass_rig);
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
+      if (patch.room !== undefined) setRoom(Math.max(0, Math.min(1, patch.room)));
       if (patch.cab !== undefined) {
         setCabOn(patch.cab);
         localStorage.setItem("gs.cabOn", patch.cab ? "1" : "0");
@@ -1482,6 +1496,17 @@ export default function TabEditor() {
                   value={namInput}
                   title="DI level into the capture. Captures are trained on a guitar's own output (peaks around -10 dBFS); 0.45 puts our samples there. Push it for more gain, pull it back if it fizzes."
                   onChange={(e) => setNamInput(parseFloat(e.target.value))}
+                />
+              </div>
+            )}
+            {(song.sound ?? "synth") !== "synth" && (
+              <div className="rig-slider">
+                <span>room</span>
+                <input
+                  className="level-slider" type="range" min={0} max={1} step={0.05}
+                  value={room}
+                  title="The room the cab sits in: early reflections and a 0.3 s tail. 0 = bone dry DI-into-amp, 0.15 = a mic'd cab in a live room."
+                  onChange={(e) => setRoom(parseFloat(e.target.value))}
                 />
               </div>
             )}

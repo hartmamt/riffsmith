@@ -71,6 +71,11 @@ export class GuitarSampler {
   private namCab: ConvolverNode | null = null;
   private namPost: GainNode | null = null;
   private namInputTrim = 0.45;
+  // the room the cab sits in: a short synthetic stereo IR (early reflections
+  // + a 0.3 s diffuse tail) on a send after every amp. DI stays dry.
+  private master: GainNode | null = null;
+  private roomSend: GainNode | null = null;
+  private roomAmount = 0.15;
   private namJson: string | null = null;
   private namMakeupDb = 6;
   // boost pedal in front of the capture (tube-screamer style: low cut, mid
@@ -235,6 +240,59 @@ export class GuitarSampler {
     this.ctx = ctx;
   }
 
+  /** Every amp's output: straight to the speakers plus the room send. */
+  private outNode(): AudioNode {
+    if (this.master) return this.master;
+    const ctx = this.ctx;
+    const master = ctx.createGain();
+    master.connect(ctx.destination);
+    const conv = ctx.createConvolver();
+    conv.buffer = this.makeRoomIR();
+    const send = ctx.createGain();
+    send.gain.value = this.roomAmount * 0.5;
+    master.connect(send).connect(conv).connect(ctx.destination);
+    this.master = master;
+    this.roomSend = send;
+    return master;
+  }
+
+  setRoom(x: number) {
+    this.roomAmount = Math.max(0, Math.min(1, x));
+    if (this.roomSend) this.roomSend.gain.value = this.roomAmount * 0.5;
+  }
+  get room(): number { return this.roomAmount; }
+
+  // a small live room, not a hall: 7 early reflections in the first 40 ms
+  // (decorrelated between channels), then a diffuse tail with RT60 ≈ 0.3 s,
+  // darkening as it decays
+  private makeRoomIR(): AudioBuffer {
+    const ctx = this.ctx;
+    const sr = ctx.sampleRate;
+    const len = Math.floor(sr * 0.4);
+    const buf = ctx.createBuffer(2, len, sr);
+    const taps = [[0.0042, 0.62], [0.0091, 0.5], [0.0133, 0.42], [0.0188, 0.36], [0.0241, 0.3], [0.0312, 0.24], [0.0405, 0.19]];
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let seed = 1234 + ch * 777;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      for (const [t, g] of taps) {
+        const i = Math.floor((t + (rnd() - 0.5) * 0.0016) * sr);
+        d[i] += g * (rnd() > 0.5 ? 1 : -1);
+        d[i + 1] += g * 0.5 * (rnd() > 0.5 ? 1 : -1); // a little spread per reflection
+      }
+      const tau = 0.3 / 6.91; // RT60 → time constant
+      let lp = 0;
+      for (let i = Math.floor(0.012 * sr); i < len; i++) {
+        const t = i / sr;
+        // the tail's brightness falls with time (air + absorption)
+        const a = Math.exp(-2 * Math.PI * (6000 * Math.exp(-t * 4)) / sr);
+        lp = a * lp + (1 - a) * (rnd() * 2 - 1);
+        d[i] += 0.33 * lp * Math.exp(-t / tau);
+      }
+    }
+    return buf;
+  }
+
   ready(): Promise<void> {
     if (!this.loading) {
       const urls: [string, string][] = [];
@@ -383,12 +441,12 @@ export class GuitarSampler {
       const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
       if (panner) {
         panner.pan.value = pan;
-        comp.connect(panner).connect(ctx.destination);
+        comp.connect(panner).connect(this.outNode());
       } else {
-        comp.connect(ctx.destination);
+        comp.connect(this.outNode());
       }
     } else {
-      comp.connect(ctx.destination);
+      comp.connect(this.outNode());
     }
     return { input, tighten, midEmph, drive, cab, post, comp };
   }
@@ -505,7 +563,7 @@ export class GuitarSampler {
     comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
     const post = ctx.createGain(); post.gain.value = 0.8 * this.level;
     input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
-    post.connect(ctx.destination);
+    post.connect(this.outNode());
     if (this.analyser) post.connect(this.analyser);
     this.bassAmp = { input, drive, post };
     return this.bassAmp;
@@ -1970,7 +2028,7 @@ export class GuitarSampler {
       if (!this.namPost) {
         this.namPost = ctx.createGain();
         this.namPost.gain.value = 0.65 * this.level;
-        this.namPost.connect(ctx.destination);
+        this.namPost.connect(this.outNode());
         if (this.analyser) this.namPost.connect(this.analyser);
       }
       if (!this.namCab) { this.namCab = ctx.createConvolver(); this.namCab.buffer = this.cab.buffer; }
