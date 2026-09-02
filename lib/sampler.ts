@@ -129,6 +129,8 @@ export class GuitarSampler {
   instrument: "guitar" | "bass" = "guitar";
   private bassNotes = new Map<number, { ff: string[]; f: string[] }>();
   private bassLoading: Promise<void> | null = null;
+  // a bass has its own amp: a guitar capture turns bass DI into fuzz
+  private bassAmp: { input: GainNode; drive: GainNode; post: GainNode } | null = null;
   stringCount = 6; // of the song being played (string-aware picks need 6)
   private gtNotes = new Map<number, { key: string; string: number; midi: number }[]>();
   private gtPinch = new Map<number, { key: string; string: number; midi: number }[]>();
@@ -468,18 +470,48 @@ export class GuitarSampler {
   // the L/R take destinations for the active amp: capture instances when a
   // NAM model is loaded, else the built-in chains
   private twinBuses(): { l: AudioNode; r: AudioNode } | null {
+    if (this.instrument === "bass") return null;
     if (this.namModelName) return this.namBusL && this.namBusR ? { l: this.namBusL, r: this.namBusR } : null;
     return this.busL && this.busR ? { l: this.busL, r: this.busR } : null;
   }
 
   private dest(): AudioNode {
-    return (this.diMode ? this.diBus : this.ampIn)!;
+    if (this.diMode) return this.diBus!;
+    if (this.instrument === "bass") return this.ensureBassAmp().input;
+    return this.ampIn!;
+  }
+
+  // Bass amp: HPF → mild tube-style saturation (drive from the tight slider,
+  // 0 = nearly clean, 1 = gritty) → bass tone stack → compressor → out.
+  private ensureBassAmp(): { input: GainNode; drive: GainNode; post: GainNode } {
+    if (this.bassAmp) return this.bassAmp;
+    const ctx = this.ctx;
+    const input = ctx.createGain();
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 35; hp.Q.value = 0.7;
+    const drive = ctx.createGain(); drive.gain.value = 1 + 3 * this.tightAmt;
+    const shaper = ctx.createWaveShaper();
+    const N = 2048; const curve = new Float32Array(N); const k = 2.2;
+    for (let i = 0; i < N; i++) { const x = (i / (N - 1)) * 2 - 1; curve[i] = Math.tanh(k * x) / Math.tanh(k); }
+    shaper.curve = curve; shaper.oversample = "2x";
+    const low = ctx.createBiquadFilter(); low.type = "lowshelf"; low.frequency.value = 90; low.gain.value = 3;
+    const mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 500; mid.Q.value = 1; mid.gain.value = -2;
+    const pres = ctx.createBiquadFilter(); pres.type = "peaking"; pres.frequency.value = 1500; pres.Q.value = 0.8; pres.gain.value = 2;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000; lp.Q.value = 0.6;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20; comp.ratio.value = 4; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
+    const post = ctx.createGain(); post.gain.value = 0.55 * this.level;
+    input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
+    post.connect(ctx.destination);
+    if (this.analyser) post.connect(this.analyser);
+    this.bassAmp = { input, drive, post };
+    return this.bassAmp;
   }
 
   setLevel(x: number) {
     this.level = Math.max(0, Math.min(2, x));
     if (this.post) this.post.gain.value = 0.65 * this.level;
     if (this.namPost) this.namPost.gain.value = 0.65 * this.level;
+    if (this.bassAmp) this.bassAmp.post.gain.value = 0.55 * this.level;
   }
 
   // 0 = loose/vintage, 1 = surgically tight: HPF 55→140Hz, +0→4dB @900Hz,
@@ -496,6 +528,7 @@ export class GuitarSampler {
   private applyTight() {
     const t = this.tightAmt;
     for (const b of this.boosts) this.applyBoost(b, t);
+    if (this.bassAmp) this.bassAmp.drive.gain.value = 1 + 3 * t;
     if (this.tighten) this.tighten.frequency.value = 55 + 85 * t;
     if (this.midEmph) this.midEmph.gain.value = 4 * t;
     if (this.driveNode) this.driveNode.gain.value = 7 - 2.5 * t;
@@ -746,7 +779,7 @@ export class GuitarSampler {
   private pickScrape(when: number, midi: number, velocity: number, art: Articulation) {
     if (!this.noiseBuf || !this.playerRules || this.diMode) return;
     const ctx = this.ctx;
-    const wound = midi < 55 ? 1 : 0.5;
+    const wound = this.instrument === "bass" ? 0.45 : midi < 55 ? 1 : 0.5;
     const level = (art === "palm" ? 0.04 : art === "pinch" ? 0.07 : 0.025) * wound * (0.6 + 0.4 * velocity);
     const lead = 0.004 + (1 - velocity) * 0.006;
     const src = ctx.createBufferSource();
@@ -788,7 +821,7 @@ export class GuitarSampler {
   // hard hits on the two lowest strings, so it can't be overdone by accident.
   private fretClank(when: number, midi: number, art: Articulation, velocity: number) {
     if (!this.noiseBuf || !this.playerRules || this.diMode) return;
-    if (velocity < 0.95 || midi > 47 || art === "dead" || art === "pinch") return;
+    if (this.instrument === "bass" || velocity < 0.95 || midi > 47 || art === "dead" || art === "pinch") return;
     const ctx = this.ctx;
     const T = 1 / midiToHz(midi);
     const base = (art === "palm" ? 0.09 : 0.12) * (midi <= 42 ? 1 : 0.7);
