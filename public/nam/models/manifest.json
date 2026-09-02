@@ -13,6 +13,14 @@
       "credit": "trained by Matt Hartman on his own rig",
       "creditUrl": "https://riffsmith.app",
       "note": "Matt's clean channel \u2014 redistributable, shipped in the repo."
+    },
+    {
+      "name": "RiffSmith Bass",
+      "url": "/nam/models/riffsmith-bass.nam",
+      "instrument": "bass",
+      "credit": "trained by Matt Hartman on his own bass rig",
+      "creditUrl": "https://riffsmith.app",
+      "note": "Matt's bass rig \u2014 redistributable, shipped in the repo. Used by the bass channel, not the guitar dropdown."
     }
   ]
 }

@@ -143,7 +143,12 @@ export class GuitarSampler {
   // a bass has its own amp: a guitar capture turns bass DI into fuzz
   private bassAmp: { input: GainNode; drive: GainNode; post: GainNode } | null = null;
   // where bass goes: its own amp (clean to gritty) or the guitar rig (dirty)
-  bassRig: "bass" | "guitar" = "bass";
+  bassRig: "bass" | "capture" | "guitar" = "capture";
+  // a bass capture: its own NAM instance fed straight from the bass DI
+  // (loudness-normalised like the guitar path). "capture" falls back to the
+  // synthetic bass amp until one is loaded.
+  private bassNam: { input: GainNode; node: AudioWorkletNode; post: GainNode; name: string } | null = null;
+  get bassCaptureName(): string | null { return this.bassNam?.name ?? null; }
   stringCount = 6; // of the song being played (string-aware picks need 6)
   private gtNotes = new Map<number, { key: string; string: number; midi: number }[]>();
   private gtPinch = new Map<number, { key: string; string: number; midi: number }[]>();
@@ -565,14 +570,15 @@ export class GuitarSampler {
   // the L/R take destinations for the active amp: capture instances when a
   // NAM model is loaded, else the built-in chains
   private twinBuses(): { l: AudioNode; r: AudioNode } | null {
-    if (this.instrument === "bass" && this.bassRig === "bass") return null;
+    if (this.instrument === "bass" && this.bassRig !== "guitar") return null;
     if (this.namModelName) return this.namBusL && this.namBusR ? { l: this.namBusL, r: this.namBusR } : null;
     return this.busL && this.busR ? { l: this.busL, r: this.busR } : null;
   }
 
   private dest(): AudioNode {
     if (this.diMode) return this.diBus!;
-    if (this.instrument === "bass" && this.bassRig === "bass") return this.ensureBassAmp().input;
+    if (this.instrument === "bass" && this.bassRig === "capture" && this.bassNam) return this.bassNam.input;
+    if (this.instrument === "bass" && this.bassRig !== "guitar") return this.ensureBassAmp().input;
     return this.ampIn!;
   }
 
@@ -594,7 +600,7 @@ export class GuitarSampler {
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000; lp.Q.value = 0.6;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
-    const post = ctx.createGain(); post.gain.value = 0.8 * this.level;
+    const post = ctx.createGain(); post.gain.value = 0.5 * this.level; // level-matched to the captures
     input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
     post.connect(this.outNode());
     if (this.analyser) post.connect(this.analyser);
@@ -606,7 +612,33 @@ export class GuitarSampler {
     this.level = Math.max(0, Math.min(2, x));
     if (this.post) this.post.gain.value = 0.65 * this.level;
     if (this.namPost) this.namPost.gain.value = 0.65 * this.level;
-    if (this.bassAmp) this.bassAmp.post.gain.value = 0.8 * this.level;
+    if (this.bassAmp) this.bassAmp.post.gain.value = 0.5 * this.level;
+    if (this.bassNam) this.bassNam.post.gain.value = 0.65 * this.level;
+  }
+
+  /** Load a bass capture into its own NAM instance (bass DI → trim → model → makeup → out). */
+  async loadBassCapture(modelJson: string, name = "bass capture"): Promise<{ ok: boolean; error?: string }> {
+    try { JSON.parse(modelJson); } catch { return { ok: false, error: "Not a valid .nam file (expected JSON)." }; }
+    await this.ready();
+    const ctx = this.ctx;
+    try {
+      const node = await this.newNamNode();
+      const r = await this.loadModelInto(node, modelJson);
+      if (!r.ok) return { ok: false, error: r.error ?? "model load failed" };
+      const input = ctx.createGain();
+      const trim = ctx.createGain(); trim.gain.value = this.namInputTrim;
+      const makeupDb = r.loudness !== null && r.loudness !== undefined && isFinite(r.loudness) ? Math.max(-12, Math.min(24, -18 - r.loudness)) : 6;
+      const makeup = ctx.createGain(); makeup.gain.value = Math.pow(10, makeupDb / 20);
+      const post = ctx.createGain(); post.gain.value = 0.65 * this.level;
+      input.connect(trim).connect(node).connect(makeup).connect(post);
+      post.connect(this.outNode());
+      if (this.analyser) post.connect(this.analyser);
+      if (this.bassNam) { try { this.bassNam.input.disconnect(); this.bassNam.post.disconnect(); } catch {} }
+      this.bassNam = { input, node, post, name };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   // 0 = loose/vintage, 1 = surgically tight: HPF 55→140Hz, +0→4dB @900Hz,
@@ -1195,7 +1227,7 @@ export class GuitarSampler {
     const stroke = opts.stroke ?? (opts.isTwin ? (this.pickStroke ?? "d") : this.nextStroke(true));
     this.pickStroke = stroke;
     if (!opts.isTwin && !opts.pickless) {
-      if (!(this.instrument === "bass" && this.bassRig === "bass")) this.floorSet(true, when - 0.02);
+      if (!(this.instrument === "bass" && this.bassRig !== "guitar")) this.floorSet(true, when - 0.02);
       if (art !== "dead") this.pickScrape(when, midi, velocity, art);
     }
 

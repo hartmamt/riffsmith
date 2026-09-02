@@ -30,7 +30,7 @@ export type RigState = {
   legato_landings: boolean;
   feedback: boolean;
   ring: number;
-  bass_rig: "bass" | "guitar";
+  bass_rig: "bass" | "capture" | "guitar";
   nam_input: number;
   room: number;
   nam_model: string | null;
@@ -569,7 +569,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           legato_landings: { type: "boolean", description: "hand legato/bend/slide landings over to a real recording of the target pitch (true) or keep the resampled voice (false)" },
           feedback: { type: "boolean", description: "notes held over ~1.3 s (with = or ~) swell into amp feedback on their overtone; off by default" },
           ring: { type: "number", minimum: 0.3, maximum: 3.2, description: "seconds a plain picked note rings before it fades (default 1.1, sequencer-tight for riffs; 2.5-3.2 for clean arpeggios and let-ring parts). \"=\" always extends a note regardless" },
-          bass_rig: { type: "string", enum: ["bass", "guitar"], description: "for bass tunings: 'bass' = its own clean-to-gritty amp (tight = drive), 'guitar' = through the guitar rig/capture for distorted bass" },
+          bass_rig: { type: "string", enum: ["capture", "bass", "guitar"], description: "for bass tunings: 'capture' = the bundled RiffSmith Bass capture (default), 'bass' = the built-in clean-to-gritty bass amp (tight = drive), 'guitar' = through the guitar rig/capture for distorted bass" },
           cab: { type: "boolean" },
           pm_bank: { type: "string", enum: ["gtechs", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (pitched down for drop tunings), bassvi = built-in flatwound Bass VI, custom = the user's imported bank" },
           note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
@@ -598,7 +598,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (args[k] !== undefined) patch[k] = Boolean(args[k]);
         }
         if (args.bass_rig !== undefined) {
-          if (!["bass", "guitar"].includes(String(args.bass_rig))) return fail("bass_rig must be bass or guitar.");
+          if (!["capture", "bass", "guitar"].includes(String(args.bass_rig))) return fail("bass_rig must be capture, bass, or guitar.");
           patch.bass_rig = args.bass_rig;
         }
         if (args.engine !== undefined) {
