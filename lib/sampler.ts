@@ -45,6 +45,7 @@ type StringVoice = {
   articulation: Articulation;
   vibrato: { lfo: OscillatorNode; depth: GainNode } | null;
   releaseAt: number;           // when the envelope reaches silence
+  holdUntil: number;           // end of the envelope plateau (release ramp starts here)
   level: number;               // body level, for tremolo re-excitation
   startedAt: number;           // source start time — body freshness tracking
 };
@@ -702,7 +703,7 @@ export class GuitarSampler {
     if (!this.noiseBuf || !this.playerRules || this.diMode) return;
     const ctx = this.ctx;
     const wound = midi < 55 ? 1 : 0.5;
-    const level = (art === "palm" ? 0.04 : 0.025) * wound * (0.6 + 0.4 * velocity);
+    const level = (art === "palm" ? 0.04 : art === "pinch" ? 0.07 : 0.025) * wound * (0.6 + 0.4 * velocity);
     const lead = 0.004 + (1 - velocity) * 0.006;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -780,7 +781,34 @@ export class GuitarSampler {
     if (attack > 0) g.exponentialRampToValueAtTime(level, when + attack);
     g.setValueAtTime(level, when + ringSeconds * 0.7);
     g.exponentialRampToValueAtTime(0.0001, when + ringSeconds);
+    v.holdUntil = when + ringSeconds * 0.7;
     v.releaseAt = when + ringSeconds;
+  }
+
+  // the envelope's value at a future time, from our own schedule. Reading
+  // `gain.value` instead gives the value NOW, which is ~130 ms behind the
+  // event being scheduled, and re-setting that on a legato steps the level
+  // back UP — the "pick" in every hammer-on and pull-off.
+  private envAt(v: StringVoice, t: number): number {
+    const lvl = Math.max(0.0001, v.level);
+    if (t <= v.holdUntil) return lvl;
+    if (t >= v.releaseAt) return 0.0001;
+    const k = (t - v.holdUntil) / Math.max(0.001, v.releaseAt - v.holdUntil);
+    return lvl * Math.pow(0.0001 / lvl, k);
+  }
+
+  // continue a ringing voice's envelope from exactly where it is at `when`,
+  // with a fresh plateau and release (legato, bends, slides)
+  private extendRing(v: StringVoice, when: number, ring: number, scale = 1) {
+    const cur = Math.max(0.0001, this.envAt(v, when) * scale);
+    const g = v.env.gain;
+    g.cancelScheduledValues(when);
+    g.setValueAtTime(cur, when);
+    g.setValueAtTime(cur, when + ring * 0.7);
+    g.exponentialRampToValueAtTime(0.0001, when + ring);
+    v.level = cur;
+    v.holdUntil = when + ring * 0.7;
+    v.releaseAt = when + ring;
   }
 
   // ---- articulations --------------------------------------------------------
@@ -866,16 +894,31 @@ export class GuitarSampler {
       buffer = picked.buffer;
       sampleMidi = picked.root;
     } else if (art === "pinch") {
-      // real pinch-harmonic recordings (frets 1-12); the squeal's overtone
-      // depends on where the thumb lands, so ±2 semitones of shift is fine
-      const cands = this.gtCandidates(this.gtPinch, midi, 2, si);
-      if (cands.length) {
-        const c = cands[this.nextRr(`gh${midi}`, cands.length) - 1];
-        buffer = this.buffers.get(c.key);
-        sampleMidi = c.midi;
-      } else {
-        const o = this.openBuffer(midi, velocity, si);
-        buffer = o.buffer; sampleMidi = o.root;
+      // pinch harmonic: the thumb kills the fundamental and the string sings
+      // an overtone — the 3rd harmonic (+19) on the low strings, the 4th (+24)
+      // higher up. Built from clean recordings of THAT pitch (any string) with
+      // a little of the fundamental underneath and a hard pick scrape; the
+      // amp does the screaming. (Recorded DI pinches were too faint and
+      // inconsistent to use.)
+      const harm = si !== undefined && si >= this.stringCount - 2 ? 19 : 24;
+      const o = this.openBuffer(Math.min(midi + harm, 86), 1, undefined);
+      buffer = o.buffer; sampleMidi = o.root;
+      if (buffer) {
+        // the fundamental, quietly, so the note still reads
+        const f = this.openBuffer(midi, velocity, si);
+        if (f.buffer && !opts.isTwin) {
+          const fs = ctx.createBufferSource();
+          fs.buffer = f.buffer;
+          fs.detune.value = (midi - f.root) * 100;
+          const fg = ctx.createGain();
+          const fl = (0.55 + 0.45 * velocity) * 0.18;
+          fg.gain.setValueAtTime(fl, when);
+          fg.gain.setValueAtTime(fl, when + 0.4);
+          fg.gain.exponentialRampToValueAtTime(0.0001, when + 1.4 + (opts.sustain ?? 0));
+          fs.connect(fg).connect(this.dest());
+          fs.start(when);
+          fs.stop(when + 1.6 + (opts.sustain ?? 0));
+        }
       }
     } else {
       const o = this.openBuffer(opts.glideFromMidi ?? midi, velocity, si);
@@ -897,7 +940,8 @@ export class GuitarSampler {
       // ADT-style slow drift: the second take wanders a few cents over a phrase
       this.twinDrift = Math.max(-4, Math.min(4, this.twinDrift + (Math.random() - 0.5) * 1.2));
     }
-    const shiftCents = (midi - sampleMidi) * 100
+    const played = art === "pinch" ? Math.min(midi + (si !== undefined && si >= this.stringCount - 2 ? 19 : 24), 86) : midi;
+    const shiftCents = (played - sampleMidi) * 100
       + (opts.isTwin ? this.twinDrift + (Math.random() - 0.5) * 2 : 0)
       // palm chugs: ±4 cents of humanization decorrelates near-identical
       // round-robin takes without audible pitch drift
@@ -1008,7 +1052,7 @@ export class GuitarSampler {
 
     const v: StringVoice = {
       src, env, sampleMidi, currentMidi: midi, bendCents: 0,
-      articulation: art, vibrato: null, releaseAt: 0, level: 0, startedAt: when,
+      articulation: art, vibrato: null, releaseAt: 0, holdUntil: 0, level: 0, startedAt: when,
     };
     // preserve the first 5-20ms pick transient: instant attack for picked hits
     if (attackOnly) {
@@ -1021,6 +1065,7 @@ export class GuitarSampler {
       if (opts.pickless) g.exponentialRampToValueAtTime(lvlA, when + 0.015);
       g.setValueAtTime(lvlA, when + hold);
       g.exponentialRampToValueAtTime(0.0001, when + end);
+      v.holdUntil = when + hold;
       v.releaseAt = when + end;
     } else {
       this.scheduleEnvelope(v, when, ring, level, opts.pickless ? 0.015 : 0);
@@ -1131,7 +1176,7 @@ export class GuitarSampler {
     // tail pool: keep at most 3 overlapping strokes per string
     const v: StringVoice = {
       src, env, sampleMidi, currentMidi: midi, bendCents: 0,
-      articulation: art, vibrato: null, releaseAt: relEnd, level, startedAt: when,
+      articulation: art, vibrato: null, releaseAt: relEnd, holdUntil: bodyEnd, level, startedAt: when,
     };
     const pool = this.repickTails.get(si) ?? [];
     pool.push(v);
@@ -1169,7 +1214,7 @@ export class GuitarSampler {
           fresh.start(when, 0.1); // past the pick transient — no double attack
           this.voices.set(si, {
             src: fresh, env: env2, sampleMidi: root, currentMidi: midi, bendCents: 0,
-            articulation: "open", vibrato: null, releaseAt: when + 0.9,
+            articulation: "open", vibrato: null, releaseAt: when + 0.9, holdUntil: when + 0.25,
             level: body.level, startedAt: when,
           });
         }
@@ -1238,8 +1283,9 @@ export class GuitarSampler {
     src.buffer = buffer;
     src.detune.value = (target - root) * 100;
     const env = ctx.createGain();
-    const lvl = Math.max(0.0001, (v.level || 0.7) * levelScale);
+    const lvl = Math.max(0.0001, this.envAt(v, when) * levelScale);
     const ringLeft = Math.max(0.35, v.releaseAt - when);
+    let usedLvl = lvl;
     // equal-power crossfade: two different recordings aren't phase-locked, so
     // a linear fade dips ~3 dB mid-way and the recovery reads as a soft attack
     const N = 33;
@@ -1269,7 +1315,8 @@ export class GuitarSampler {
       if (rOld > 1e-5 && rNew > 1e-5) {
         const ratio = Math.max(0.2, Math.min(3, rOld / rNew));
         env.gain.cancelScheduledValues(when);
-        applyIn(env.gain, lvl * ratio);
+        usedLvl = lvl * ratio;
+        applyIn(env.gain, usedLvl);
       }
     }
     src.start(when, offset);
@@ -1285,7 +1332,8 @@ export class GuitarSampler {
     } catch {}
     const nv: StringVoice = {
       src, env, sampleMidi: root, currentMidi: heldMidi, bendCents: heldCents,
-      articulation: "open", vibrato: null, releaseAt: when + ringLeft, level: lvl,
+      articulation: "open", vibrato: null, releaseAt: when + ringLeft, level: usedLvl,
+      holdUntil: when + Math.max(fadeS, ringLeft * 0.7),
       // startedAt is back-dated by the offset so a later swap keeps decaying from here
       startedAt: when - (offset - 0.03),
     };
@@ -1320,11 +1368,7 @@ export class GuitarSampler {
     if (style !== "pull") this.fretImpact(when, style === "tap" ? 0.08 : 0.04);
     // refresh the ring so the new note doesn't die on the old envelope
     const ring = 0.9 + (opts.sustain ?? 0);
-    const lvl = Math.max(0.0001, v.env.gain.value) * (style === "pull" ? 0.92 : 0.97);
-    const g = v.env.gain;
-    g.setValueAtTime(lvl, when + 0.06);
-    g.exponentialRampToValueAtTime(0.0001, when + ring);
-    v.releaseAt = when + ring;
+    this.extendRing(v, when, ring, style === "pull" ? 0.92 : 0.97);
     const nv = this.swapVoice(si, midi, 0, when + ramp + 0.01, style === "pull" ? 0.09 : 0.05, style === "pull" ? 0.85 : 1);
     if (opts.vibrato) this.attachVibrato(nv ?? v, when + 0.08);
   }
@@ -1353,13 +1397,7 @@ export class GuitarSampler {
     v.src.detune.linearRampToValueAtTime(to, when + dur);
     v.bendCents = cents;
     const ring = Math.max(0.9, dur + 0.5) + (opts.sustain ?? 0);
-    const g = v.env.gain;
-    const cur = Math.max(0.0001, g.value);
-    g.cancelScheduledValues(when);
-    g.setValueAtTime(cur, when);
-    g.setValueAtTime(cur, when + ring * 0.6);
-    g.exponentialRampToValueAtTime(0.0001, when + ring);
-    v.releaseAt = when + ring;
+    this.extendRing(v, when, ring, 1);
     const nv = this.swapVoice(si, v.currentMidi, cents, when + dur, 0.06);
     if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02);
   }
@@ -1385,13 +1423,7 @@ export class GuitarSampler {
     v.currentMidi = midi;
     v.bendCents = 0;
     const ring = dur + 0.8 + (opts.sustain ?? 0);
-    const g = v.env.gain;
-    const cur = Math.max(0.0001, g.value);
-    g.cancelScheduledValues(when);
-    g.setValueAtTime(cur, when);
-    g.setValueAtTime(cur * 0.95, when + ring * 0.6);
-    g.exponentialRampToValueAtTime(0.0001, when + ring);
-    v.releaseAt = when + ring;
+    this.extendRing(v, when, ring, 0.95);
     const nv = this.swapVoice(si, midi, 0, when + dur, 0.06);
     if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02);
   }

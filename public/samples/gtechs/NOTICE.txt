@@ -6,8 +6,8 @@ Data: https://zenodo.org/records/14963133  ·  https://guitar-techs.github.io/
 License: Creative Commons Attribution 4.0 International (CC BY 4.0)
          https://creativecommons.org/licenses/by/4.0/
 
-Single notes, palm mutes and pinch harmonics were cut from the long DI
+Single notes and palm mutes were cut from the long DI
 recordings (one note per 4 s window), trimmed, RMS-normalised and encoded
 to MP3 for RiffSmith by Matt Hartman, 2026. Files: n<midi>_s<string>.mp3
 (sustain), pm<midi>_s<string>.mp3 (palm mute), ph<midi>_s<string>.mp3
-(pinch harmonic; <midi> is the fretted pitch). string 1 = high E, 6 = low E.
+string 1 = high E, 6 = low E.
