@@ -11,7 +11,7 @@ import { GuitarSampler } from "@/lib/sampler";
 import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf,
 } from "@/lib/schedule";
-import { makeBassAuditionSong, makeChugAuditionSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
+import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
 const STORE_KEY = "guitarscrobble.songs.v1";
@@ -1091,6 +1091,38 @@ export default function TabEditor() {
               }}
             >
               tremolo audition
+            </button>
+            <button
+              className="btn audition-item"
+              title="create the guitar showcase (Drop B): one short piece that runs through chords, pinch squeals, gallop chugs, slides, legato, bends, tremolo and chops"
+              onClick={() => {
+                const t = makeGuitarShowcaseSong();
+                setSongs((prev) => {
+                  const rest = (prev ?? []).filter((s) => s.title !== "Guitar Showcase");
+                  return [t, ...rest];
+                });
+                setActiveId(t.id);
+                setSel({ m: 0, c: 0, s: 0 });
+                ensureSampler().ready();
+              }}
+            >
+              guitar showcase
+            </button>
+            <button
+              className="btn audition-item"
+              title="create the bass showcase (Bass Drop B): let-ring low B, gallops, chops, a root/fifth/octave groove with legato, slides, and a held chord"
+              onClick={() => {
+                const t = makeBassShowcaseSong();
+                setSongs((prev) => {
+                  const rest = (prev ?? []).filter((s) => s.title !== "Bass Showcase");
+                  return [t, ...rest];
+                });
+                setActiveId(t.id);
+                setSel({ m: 0, c: 0, s: 0 });
+                ensureSampler().ready();
+              }}
+            >
+              bass showcase
             </button>
             <button
               className="btn audition-item"

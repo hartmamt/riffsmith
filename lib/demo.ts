@@ -234,3 +234,84 @@ export function makeBassAuditionSong(): Song {
     updatedAt: Date.now(),
   };
 }
+
+// "Guitar Showcase": one short piece in Drop B that runs through everything
+// the engine does — let-ring chords with vibrato, a pinch squeal, gallop
+// chugs with grip, a slide into a chug, a legato run, a bend with vibrato,
+// tremolo picking, dead-note chops, and a held final chord (turn `feedback`
+// on in the rig to hear it swell).
+export function makeGuitarShowcaseSong(): Song {
+  const tuning = [...TUNING_PRESETS["Drop B"]];
+  const B1 = 5, F2 = 4, B2 = 3, E3 = 2, G3 = 1, C4 = 0;
+  const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
+    barLines(tuning, lines, sig, spb, label, extra);
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: "Guitar Showcase",
+    artist: "RiffSmith",
+    bpm: 150,
+    tuning,
+    sound: "guitar",
+    measures: [
+      // a big open B5 rings with vibrato, then a pinch squeal answers it
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =" }, "4/4", 2, "INTRO · chord, then a pinch squeal"),
+      bl({ [B1]: "^7 ~ = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "^5 ~ = = = = \\3 =" }, "4/4", 2),
+      // gallops, open hits, a slide into the chug on fret 8
+      bl({ [B1]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4, "RIFF · gallops, slides, chops", { repeatStart: true }),
+      bl({ [B1]: "m0 m0 m0 3 m0 m0 x x m0 m0 m0 6 5 3 0 =" }, "4/4", 4),
+      bl({ [B1]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4),
+      bl({ [B1]: "m0 m0 x m0 m0 x m0 m0 8 = \\6 = 5 = 3 =", [F2]: ". . . . . . . . . . . . . . . ." }, "4/4", 4, undefined, { repeatEnd: 2 }),
+      // legato on the middle strings, then a bend that sings
+      bl({ [E3]: "5 h7 p5 . 7 h9 p7 .", [G3]: ". . . 7 . . . 9" }, "4/4", 2, "LEAD · legato, bend, vibrato"),
+      bl({ [G3]: "9 b = = = r = =", [C4]: ". . . . . . . ." }, "4/4", 2),
+      bl({ [E3]: "7 h9 p7 h9 p7 h9 p7 =", [G3]: ". . . . . . . ." }, "4/4", 2),
+      bl({ [G3]: "/12 ~ = = = = = =", [C4]: ". . . . . . . ." }, "4/4", 2),
+      // tremolo on the low string, moving
+      bl({ [B1]: "0 * * * 3 * * * 5 * * * 6 * * *" }, "4/4", 4, "TREMOLO"),
+      bl({ [B1]: "8 * * * 6 * * * 5 * * * 3 * * *" }, "4/4", 4),
+      // dead-note chops against the chord, then the final chord held
+      bl({ [B1]: "x x m0 x x m0 3 =", [F2]: ". . . . . . 3 =", [B2]: ". . . . . . 3 =" }, "4/4", 2, "OUTRO · chops, then hold it (try feedback)"),
+      bl({ [B1]: "x x m0 x x 5 = =", [F2]: ". . . . . 5 = =", [B2]: ". . . . . 5 = =" }, "4/4", 2),
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =", [E3]: "0 = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "= = = = = = = =", [F2]: "= = = = = = = =", [B2]: "= = = = = = = =", [E3]: "= = = = = = = =" }, "4/4", 2),
+    ],
+    updatedAt: Date.now(),
+  };
+}
+
+// "Bass Showcase": the same idea for a 4-string in Bass Drop B — let-ring
+// low B, gallops with dead-note chops, a root/fifth/octave groove with
+// hammer-ons and pull-offs, slides both ways, and a held two-note chord.
+export function makeBassShowcaseSong(): Song {
+  const tuning = [...TUNING_PRESETS["Bass Drop B"]];
+  const B0 = 3, F1 = 2, B1 = 1, E2 = 0;
+  const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
+    barLines(tuning, lines, sig, spb, label, extra);
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: "Bass Showcase",
+    artist: "RiffSmith",
+    bpm: 150,
+    tuning,
+    sound: "guitar",
+    measures: [
+      bl({ [B0]: "0 = = = ~ = = =" }, "4/4", 2, "INTRO · low B, let ring"),
+      bl({ [B0]: "0 = = /5 = = \\3 =" }, "4/4", 2),
+      bl({ [B0]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4, "RIFF · gallops, slides, chops", { repeatStart: true }),
+      bl({ [B0]: "m0 m0 m0 3 m0 m0 x x m0 m0 m0 6 5 3 0 =" }, "4/4", 4),
+      bl({ [B0]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4),
+      bl({ [B0]: "m0 m0 x m0 m0 x m0 m0 8 = \\6 = 5 = 3 =" }, "4/4", 4, undefined, { repeatEnd: 2 }),
+      bl({ [B0]: "0 . 0 . . . 0 .", [F1]: ". 0 . . 0 h2 . 0" }, "4/4", 2, "GROOVE · root, fifth, octave, legato"),
+      bl({ [B0]: "0 . 0 . . . 3 .", [F1]: ". 0 . . 2 p0 . ." }, "4/4", 2),
+      bl({ [B0]: "0 . 0 . . . 0 .", [B1]: ". 0 . . 0 h2 . 0" }, "4/4", 2),
+      bl({ [B0]: "3 . 3 . 5 . 6 .", [F1]: ". 3 . . . 5 . 6" }, "4/4", 2),
+      bl({ [B0]: "0 /7 = = \\0 = = =" }, "4/4", 2, "FILL · slides, then a held two-note chord"),
+      bl({ [F1]: "5 h7 p5 = 3 h5 p3 =" }, "4/4", 2),
+      bl({ [B1]: "0 ~ = = = = = =", [E2]: "2 = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "= = = = = = = =", [E2]: "= = = = = = = =" }, "4/4", 2),
+    ],
+    updatedAt: Date.now(),
+  };
+}
