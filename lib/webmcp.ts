@@ -200,6 +200,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           ),
           bpm: Math.min(300, Math.max(30, Number(args.bpm) || 120)),
           tuning: [...tuning],
+          sound: "guitar",
           measures: Array.from({ length: nBars }, () => emptyMeasure(tuning.length, sig)),
           updatedAt: Date.now(),
         };

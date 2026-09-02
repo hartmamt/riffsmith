@@ -16,7 +16,7 @@ export type Song = {
   title: string;
   artist: string;
   bpm: number;
-  sound?: "synth" | "guitar" | "guitar-di"; // playback instrument (default synth); guitar-di = clean debug monitoring
+  sound?: "synth" | "guitar" | "guitar-di"; // playback instrument (new songs: guitar; legacy songs without it: synth); guitar-di = clean debug monitoring
   tuning: string[]; // top-to-bottom as displayed (high → low), e.g. ["E4","B3","G3","D3","A2","E2"]
   measures: Measure[];
   updatedAt: number;
@@ -93,6 +93,7 @@ export function newSong(title = "Untitled riff"): Song {
     artist: "",
     bpm: 120,
     tuning,
+    sound: "guitar", // the sampled guitar through the rig; samples load on first play
     measures: Array.from({ length: 4 }, () => emptyMeasure(tuning.length)),
     updatedAt: Date.now(),
   };

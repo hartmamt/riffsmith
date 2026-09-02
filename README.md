@@ -89,7 +89,7 @@ Every one of those maps onto the tools above without any UI interaction.
 - Custom palm-mute sample bank: drop in your own DI `.wav` hits named `<note><octave>_v<velocity>_rr<n>.wav`; they persist in IndexedDB and replace the built-in bank where they cover the pitch.
 - `scripts/mine_chugs.py`: mine palm-mute hits out of full DI stems into bank-convention files, reporting every candidate and why rejects were rejected.
 - Audition songs (technique test, chug A/B, tremolo) for comparing DI, built-in amp, NAM, and palm-mute banks while looping.
-- A plain synth voice as the default sound, so playback works before any samples load.
+- New and imported songs play through the sampled guitar and the rig by default; a plain synth voice is still available per song for sketching before samples load.
 
 ## Notation
 
