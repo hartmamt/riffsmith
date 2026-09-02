@@ -1,0 +1,10 @@
+Black And Blue Basses — "babyblue" (Karoryfer Samples)
+Source: https://github.com/sfzinstruments/karoryfer.black-and-blue-basses
+        https://shop.karoryfer.com/pages/free-black-and-blue-basses
+License: Creative Commons CC0 1.0 (public domain dedication)
+
+Picked solid-body 5-string bass, bridge pickup, B0–D#4 chromatic, two
+dynamics (ff ×4 round robins, f ×2 kept here). Trimmed to 3.5 s, RMS
+level-matched and encoded to MP3 for RiffSmith by Matt Hartman, 2026.
+Files: b<midi>_<ff|f>_rr<n>.mp3 — <midi> is the SOUNDING pitch (the library
+labels notes an octave higher, bass-clef convention).

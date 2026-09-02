@@ -125,6 +125,10 @@ export class GuitarSampler {
   // pinch harmonics on frets 1-12. Keyed by pitch, each entry remembers its
   // string (1 = high E … 6 = low E) so a note prefers the string it's tabbed on.
   noteBank: "gtechs" | "fsbs" = "gtechs";
+  // bass tunings play a real bass (Karoryfer babyblue, CC0), loaded on demand
+  instrument: "guitar" | "bass" = "guitar";
+  private bassNotes = new Map<number, { ff: string[]; f: string[] }>();
+  private bassLoading: Promise<void> | null = null;
   stringCount = 6; // of the song being played (string-aware picks need 6)
   private gtNotes = new Map<number, { key: string; string: number; midi: number }[]>();
   private gtPinch = new Map<number, { key: string; string: number; midi: number }[]>();
@@ -608,6 +612,32 @@ export class GuitarSampler {
     return (n % count) + 1;
   }
 
+  /** Load the bass bank (idempotent); called when a bass-tuned song plays. */
+  loadBass(): Promise<void> {
+    if (!this.bassLoading) {
+      this.bassLoading = (async () => {
+        try {
+          const man = await fetch(`${BASE}/bass/manifest.json`).then((r) => (r.ok ? r.json() : null));
+          const files = (man?.files ?? []) as { file: string; layer: "ff" | "f"; rr: number; midi: number }[];
+          await Promise.all(files.map(async (f) => {
+            try {
+              const res = await fetch(`${BASE}/bass/${f.file}`);
+              if (!res.ok) return;
+              const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+              const key = `bass_${f.file}`;
+              this.buffers.set(key, buf);
+              if (!this.bassNotes.has(f.midi)) this.bassNotes.set(f.midi, { ff: [], f: [] });
+              this.bassNotes.get(f.midi)![f.layer].push(key);
+            } catch {}
+          }));
+        } catch {}
+      })();
+    }
+    return this.bassLoading;
+  }
+
+  get bassLoaded(): boolean { return this.bassNotes.size > 0; }
+
   // Guitar-TECHS candidates for a pitch: exact pitch on the tabbed string
   // first, then that string's neighbouring frets (±1 semitone, pitched — same
   // timbre, real round robins), then any string. `tol` widens the search.
@@ -630,6 +660,15 @@ export class GuitarSampler {
   // dynamic, string-aware) by default; FreePats picks its layer by velocity
   // (accents 0.72-1.0 → soft below ~0.86, hard above); Emily as the fallback
   private openBuffer(midi: number, velocity: number, si?: number, tol = 1): { buffer: AudioBuffer | undefined; root: number } {
+    if (this.instrument === "bass" && this.bassNotes.size) {
+      const roots = [...this.bassNotes.keys()];
+      const root = this.nearest(roots, midi);
+      const e = this.bassNotes.get(root)!;
+      const layer = velocity >= 0.86 && e.ff.length ? e.ff : e.f.length ? e.f : e.ff;
+      const key = layer[this.nextRr(`bass${root}${layer === e.ff ? "ff" : "f"}`, layer.length) - 1];
+      const buffer = this.buffers.get(key);
+      if (buffer) return { buffer, root };
+    }
     if (this.noteBank === "gtechs" && this.gtNotes.size) {
       const cands = this.gtCandidates(this.gtNotes, midi, tol, si);
       if (cands.length) {
@@ -950,6 +989,10 @@ export class GuitarSampler {
     if (art === "dead") {
       const id = midi < 45 ? 5 : midi < 52 ? 4 : midi < 60 ? 3 : midi < 68 ? 2 : 1;
       buffer = this.buffers.get(`m${id}_rr${this.nextRr(`m${id}`, 3)}`);
+    } else if (art === "palm" && this.instrument === "bass" && this.bassNotes.size) {
+      // no recorded bass mutes: the bass note itself under the palm envelope
+      const o = this.openBuffer(midi, velocity, si);
+      buffer = o.buffer; sampleMidi = o.root;
     } else if (art === "palm") {
       const picked = this.pickPmBuffer(midi, velocity);
       buffer = picked.buffer;

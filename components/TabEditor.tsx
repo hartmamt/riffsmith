@@ -545,6 +545,13 @@ export default function TabEditor() {
       sampler.diMode = sound === "guitar-di";
       sampler.resetPickDirection(); // phrase boundary: hand starts on a downstroke
       sampler.stringCount = songRef.current.tuning.length;
+      // a bass tuning (≤5 strings, lowest below C2) plays the bass bank
+      const lowest = Math.min(...songRef.current.tuning.map((n) => noteToMidi(n) ?? 99));
+      sampler.instrument = songRef.current.tuning.length <= 5 && lowest < 36 ? "bass" : "guitar";
+      if (sampler.instrument === "bass" && !sampler.bassLoaded) {
+        sampler.loadBass().then(() => playRef.current(start, end));
+        return;
+      }
       if (!sampler.loaded) {
         sampler.ready().then(() => playRef.current(start, end));
         return;
