@@ -1507,7 +1507,7 @@ export default function TabEditor() {
                 <span>double track</span>
                 <button
                   className={`rig-switch ${doubled ? "on" : ""}`}
-                  title="double-track: independent second take, hard-panned L/R (built-in amp only)"
+                  title="double-track: an independent second take, hard-panned L/R (two extra capture instances when a .nam model is loaded)"
                   onClick={() => setDoubled((v) => {
                     localStorage.setItem("gs.double", v ? "0" : "1");
                     return !v;

@@ -68,6 +68,17 @@ export class GuitarSampler {
   private namCab: ConvolverNode | null = null;
   private namPost: GainNode | null = null;
   private namInputTrim = 0.45;
+  private namJson: string | null = null;
+  private namMakeupDb = 6;
+  // boost pedal in front of the capture (tube-screamer style: low cut, mid
+  // hump, soft clip, top-end roll-off) — what a metal rig always has and
+  // what turns a dark humbucker DI into a tight, defined 5150 tone
+  private boosts: { hp: BiquadFilterNode; mid: BiquadFilterNode; clip: WaveShaperNode; lp: BiquadFilterNode }[] = [];
+  // double tracking through the capture: two more instances, hard-panned
+  private namBusL: GainNode | null = null;
+  private namBusR: GainNode | null = null;
+  private namStereoReady: Promise<void> | null = null;
+  private namBoost: { input: AudioNode; output: AudioNode } | null = null;
   private cabBypass = true; // most shared captures are full rigs (amp + cab)
   private level = 1;
   private noiseBuf: AudioBuffer | null = null; // fret-impact transients
@@ -404,7 +415,14 @@ export class GuitarSampler {
 
   setDoubleTrack(on: boolean) {
     this.doubleTrack = on;
-    if (on) void this.ensureDoubleBuses();
+    if (on) { void this.ensureDoubleBuses(); if (this.namModelName) void this.ensureNamStereo(); }
+  }
+
+  // the L/R take destinations for the active amp: capture instances when a
+  // NAM model is loaded, else the built-in chains
+  private twinBuses(): { l: AudioNode; r: AudioNode } | null {
+    if (this.namModelName) return this.namBusL && this.namBusR ? { l: this.namBusL, r: this.namBusR } : null;
+    return this.busL && this.busR ? { l: this.busL, r: this.busR } : null;
   }
 
   private dest(): AudioNode {
@@ -430,6 +448,7 @@ export class GuitarSampler {
 
   private applyTight() {
     const t = this.tightAmt;
+    for (const b of this.boosts) this.applyBoost(b, t);
     if (this.tighten) this.tighten.frequency.value = 55 + 85 * t;
     if (this.midEmph) this.midEmph.gain.value = 4 * t;
     if (this.driveNode) this.driveNode.gain.value = 7 - 2.5 * t;
@@ -798,10 +817,10 @@ export class GuitarSampler {
     const strokeGain = stroke === "d" ? 1 : 0.93;
 
     // route: double-tracked palm/open notes split to hard-panned L/R chains
-    const doubled = this.doubleTrack && !this.diMode && !this.namModelName &&
-      (art === "palm" || art === "open") && this.busL && this.busR;
+    const twinBuses = this.twinBuses();
+    const doubled = this.doubleTrack && !this.diMode && (art === "palm" || art === "open") && !!twinBuses;
     const destNode: AudioNode = doubled
-      ? (opts.isTwin ? this.busR! : this.busL!)
+      ? (opts.isTwin ? twinBuses!.r : twinBuses!.l)
       : this.dest();
 
     const env = ctx.createGain();
@@ -988,10 +1007,10 @@ export class GuitarSampler {
       out.connect(color);
       out = color;
     }
-    const doubled = this.doubleTrack && !this.diMode && !this.namModelName &&
-      art !== "dead" && this.busL && this.busR;
+    const twinBuses = this.twinBuses();
+    const doubled = this.doubleTrack && !this.diMode && art !== "dead" && !!twinBuses;
     src.connect(env);
-    out.connect(doubled ? this.busL! : this.dest());
+    out.connect(doubled ? twinBuses!.l : this.dest());
     src.start(when);
     src.stop(relEnd + 0.05);
 
@@ -1065,7 +1084,7 @@ export class GuitarSampler {
         e2.gain.setValueAtTime(level, t2);
         e2.gain.setValueAtTime(level, t2 + 0.055);
         e2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.135);
-        s2.connect(e2).connect(this.busR!);
+        s2.connect(e2).connect(twinBuses!.r);
         s2.start(t2);
         s2.stop(t2 + 0.19);
       }
@@ -1414,10 +1433,34 @@ export class GuitarSampler {
 
   // ---- NAM ------------------------------------------------------------------
 
+  private makeBoost(): { input: AudioNode; output: AudioNode } {
+    const ctx = this.ctx;
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.Q.value = 0.5;
+    const mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 800; mid.Q.value = 0.7;
+    const clip = ctx.createWaveShaper(); clip.oversample = "2x";
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5500; lp.Q.value = 0.6;
+    hp.connect(mid).connect(clip).connect(lp);
+    const b = { hp, mid, clip, lp };
+    this.boosts.push(b);
+    this.applyBoost(b, this.tightAmt);
+    return { input: hp, output: lp };
+  }
+
+  private applyBoost(b: { hp: BiquadFilterNode; mid: BiquadFilterNode; clip: WaveShaperNode; lp: BiquadFilterNode }, t: number) {
+    b.hp.frequency.value = 90 + 260 * t;      // 90 Hz loose → 350 Hz surgically tight
+    b.mid.gain.value = 2 + 5 * t;             // +2 … +7 dB at 800 Hz
+    const k = 1.5 + 3 * t;                    // soft-clip drive: unity for small signals
+    const N = 1024; const curve = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const x = (i / (N - 1)) * 2 - 1; curve[i] = Math.tanh(k * x) / k; }
+    b.clip.curve = curve;
+    b.lp.frequency.value = 5500 - 1500 * t;
+  }
+
   /** DI level into the NAM model, 0.1–2 (1 = raw sample level). */
   setNamInput(x: number) {
     this.namInputTrim = Math.max(0.1, Math.min(2, x));
     if (this.namIn) this.namIn.gain.value = this.namInputTrim;
+    for (const g of this.namTwinTrims) g.gain.value = this.namInputTrim;
   }
 
   get namInput(): number { return this.namInputTrim; }
@@ -1440,7 +1483,10 @@ export class GuitarSampler {
       try { this.namNode.disconnect(); } catch {}
       try { this.namMakeup.disconnect(); } catch {}
       try { this.namCab.disconnect(); } catch {}
-      this.ampIn.connect(this.namIn);
+      if (!this.namBoost) this.namBoost = this.makeBoost();
+      try { this.namBoost.output.disconnect(); } catch {}
+      this.ampIn.connect(this.namBoost.input);
+      this.namBoost.output.connect(this.namIn);
       this.namIn.connect(this.namNode);
       this.namNode.connect(this.namMakeup);
       if (this.cabBypass) this.namMakeup.connect(this.namPost);
@@ -1451,35 +1497,31 @@ export class GuitarSampler {
     }
   }
 
-  async loadNamModel(modelJson: string, name = "model"): Promise<{ ok: boolean; error?: string; loudness?: number | null }> {
-    try {
-      JSON.parse(modelJson);
-    } catch {
-      return { ok: false, error: "Not a valid .nam file (expected JSON)." };
-    }
-    await this.ready();
+  private namModuleAdded: Promise<void> | null = null;
+
+  // one capture instance: worklet node with the wasm engine initialised
+  private async newNamNode(): Promise<AudioWorkletNode> {
     const ctx = this.ctx;
-    if (!this.namNode) {
-      await ctx.audioWorklet.addModule("/nam/nam-processor.js");
-      const wasmBinary = await fetch("/nam/nam.wasm").then((r) => r.arrayBuffer());
-      const node = new AudioWorkletNode(ctx, "nam-processor", {
-        numberOfInputs: 1,
-        numberOfOutputs: 1,
-        outputChannelCount: [1],
-      });
-      await new Promise<void>((resolve, reject) => {
-        const t = window.setTimeout(() => reject(new Error("NAM engine init timed out")), 10000);
-        node.port.onmessage = (e) => {
-          if (e.data.type === "ready") { clearTimeout(t); resolve(); }
-          else if (e.data.type === "error") { clearTimeout(t); reject(new Error(e.data.error)); }
-        };
-        node.port.postMessage({ type: "init", wasmBinary }, [wasmBinary]);
-      });
-      this.namNode = node;
-    }
-    const node = this.namNode;
-    const result = await new Promise<{ ok: boolean; error?: string; loudness?: number | null }>((resolve) => {
-      const t = window.setTimeout(() => resolve({ ok: false, error: "Model load timed out" }), 10000);
+    if (!this.namModuleAdded) this.namModuleAdded = ctx.audioWorklet.addModule("/nam/nam-processor.js");
+    await this.namModuleAdded;
+    const wasmBinary = await fetch("/nam/nam.wasm").then((r) => r.arrayBuffer());
+    const node = new AudioWorkletNode(ctx, "nam-processor", {
+      numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+    });
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("NAM engine init timed out")), 10000);
+      node.port.onmessage = (e) => {
+        if (e.data.type === "ready") { clearTimeout(t); resolve(); }
+        else if (e.data.type === "error") { clearTimeout(t); reject(new Error(e.data.error)); }
+      };
+      node.port.postMessage({ type: "init", wasmBinary }, [wasmBinary]);
+    });
+    return node;
+  }
+
+  private loadModelInto(node: AudioWorkletNode, modelJson: string): Promise<{ ok: boolean; error?: string; loudness?: number | null }> {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve({ ok: false, error: "Model load timed out" }), 10000);
       node.port.onmessage = (e) => {
         if (e.data.type === "modelLoaded") {
           clearTimeout(t);
@@ -1488,22 +1530,69 @@ export class GuitarSampler {
       };
       node.port.postMessage({ type: "loadModel", modelJson });
     });
+  }
+
+  async loadNamModel(modelJson: string, name = "model"): Promise<{ ok: boolean; error?: string; loudness?: number | null }> {
+    try {
+      JSON.parse(modelJson);
+    } catch {
+      return { ok: false, error: "Not a valid .nam file (expected JSON)." };
+    }
+    await this.ready();
+    if (!this.namNode) this.namNode = await this.newNamNode();
+    const result = await this.loadModelInto(this.namNode, modelJson);
     if (result.ok) {
       this.namModelName = name;
+      this.namJson = modelJson;
       this.routeNam(true);
       const TARGET_DB = -18;
-      const makeupDb =
+      this.namMakeupDb =
         result.loudness !== null && result.loudness !== undefined && isFinite(result.loudness)
           ? Math.max(-12, Math.min(24, TARGET_DB - result.loudness))
           : 6;
-      this.namMakeup!.gain.value = Math.pow(10, makeupDb / 20);
+      this.namMakeup!.gain.value = Math.pow(10, this.namMakeupDb / 20);
+      // a new model invalidates the stereo instances; rebuild them if in use
+      this.namStereoReady = null;
+      if (this.doubleTrack) void this.ensureNamStereo();
     }
     return result;
   }
+
+  // two more capture instances, hard-panned, each with its own boost and
+  // fed by its own take (the twin voices), for double tracking through NAM
+  private ensureNamStereo(): Promise<void> {
+    if (this.namStereoReady) return this.namStereoReady;
+    this.namStereoReady = (async () => {
+      const json = this.namJson;
+      if (!json || !this.cab) return;
+      const ctx = this.ctx;
+      const build = async (pan: number): Promise<GainNode> => {
+        const bus = ctx.createGain();
+        const boost = this.makeBoost();
+        const trim = ctx.createGain(); trim.gain.value = this.namInputTrim;
+        const node = await this.newNamNode();
+        const r = await this.loadModelInto(node, json);
+        if (!r.ok) throw new Error(r.error ?? "stereo model load failed");
+        const makeup = ctx.createGain(); makeup.gain.value = Math.pow(10, this.namMakeupDb / 20);
+        const cab = ctx.createConvolver(); cab.buffer = this.cab!.buffer;
+        const panner = ctx.createStereoPanner(); panner.pan.value = pan;
+        bus.connect(boost.input); boost.output.connect(trim); trim.connect(node); node.connect(makeup);
+        if (this.cabBypass) makeup.connect(panner); else { makeup.connect(cab); cab.connect(panner); }
+        panner.connect(this.namPost ?? ctx.destination);
+        this.namTwinTrims.push(trim);
+        return bus;
+      };
+      const [l, r] = await Promise.all([build(-0.8), build(0.8)]);
+      this.namBusL = l; this.namBusR = r;
+    })().catch((e) => { console.warn("NAM double tracking unavailable", e); this.namBusL = this.namBusR = null; });
+    return this.namStereoReady;
+  }
+  private namTwinTrims: GainNode[] = [];
 
   bypassNam() {
     this.namModelName = null;
     this.namNode?.port.postMessage({ type: "bypass" });
     this.routeNam(false);
   }
+
 }
