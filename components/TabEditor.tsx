@@ -204,6 +204,8 @@ export default function TabEditor() {
   const [playerRules, setPlayerRules] = useState(() =>
     typeof window === "undefined" ? true : localStorage.getItem("gs.rules") !== "0");
   const rulesRef = useRef(true);
+  const [showAdvanced, setShowAdvanced] = useState(() =>
+    typeof window === "undefined" ? false : localStorage.getItem("gs.advanced") === "1");
   const [feedback, setFeedback] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.feedback") === "1");
   const feedbackRef = useRef(false);
@@ -1415,19 +1417,6 @@ export default function TabEditor() {
                 </select>
               </div>
             )}
-            {(song.sound ?? "synth") !== "synth" && (
-              <div className="rig-row">
-                <span>guitar</span>
-                <select
-                  value={noteBank}
-                  title="which DI recordings play sustained notes: Guitar-TECHS LP humbucker (string-aware, one dynamic) or FreePats Fender single-coil (two dynamics)"
-                  onChange={(e) => { void setNoteBank(e.target.value as "gtechs" | "fsbs"); }}
-                >
-                  <option value="gtechs">LP humbucker · Guitar-TECHS</option>
-                  <option value="fsbs">Fender · FreePats</option>
-                </select>
-              </div>
-            )}
             {(song.sound ?? "synth") === "guitar" && (
               <>
                 <div className="rig-row">
@@ -1570,34 +1559,6 @@ export default function TabEditor() {
                   onChange={(e) => { const v = parseFloat(e.target.value); setMuteStr(v); localStorage.setItem("gs.mute", String(v)); }}
                 />
               </div>
-              <div className="rig-row">
-                <span>pm bank</span>
-                <select
-                  value={pmSource}
-                  title="palm-mute sample source; 'custom import…' loads your own DI recordings (b1_v3_rr1.wav naming)"
-                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtx" | "gtechs" | "custom"); }}
-                >
-                  <option value="gtechs">LP humbucker · standard</option>
-                  <option value="gtx">Metal GTX · 7-string</option>
-                  <option value="bassvi">bass VI (built-in)</option>
-                  <option value="custom">custom import…</option>
-                </select>
-              </div>
-              {pmSource === "custom" && (
-                <div className="rig-row">
-                  <span className="pm-status">{pmBankInfo}</span>
-                  <button
-                    className="ghost" title="clear stored custom bank"
-                    onClick={async () => {
-                      await clearPmBank();
-                      setPmBankInfo(null);
-                      setPmSource("bassvi");
-                      samplerRef.current?.clearCustomPm();
-                    }}
-                  >✕</button>
-                </div>
-              )}
-              {pmSource !== "custom" && pmBankInfo && <span className="pm-status">{pmBankInfo}</span>}
               <input
                 ref={pmFileRef} type="file" multiple accept=".wav,.aif,.aiff,.flac"
                 style={{ display: "none" }}
@@ -1659,6 +1620,71 @@ export default function TabEditor() {
                 </button>
               </div>
               <div className="rig-row">
+                <span>feedback</span>
+                <button
+                  className={`rig-switch ${feedback ? "on" : ""}`}
+                  title="notes held with = or ~ for over a second swell into amp feedback on their overtone (the 12th low down, the octave higher up)"
+                  onClick={() => setFeedback(!feedback)}
+                >
+                  <span className="rig-switch-knob" />
+                </button>
+              </div>
+            </section>
+          )}
+
+          {(song.sound ?? "synth") !== "synth" && (
+            <section className="rig-unit rig-advanced">
+              <header>
+                <button
+                  className="rig-disclose"
+                  title="sample banks, the humanization A/B switches and the experimental string model — for comparing, not for playing"
+                  onClick={() => setShowAdvanced((v) => { localStorage.setItem("gs.advanced", v ? "0" : "1"); return !v; })}
+                >
+                  {showAdvanced ? "▾" : "▸"} experimental
+                </button>
+              </header>
+              {showAdvanced && (
+                <>
+              <div className="rig-row">
+                <span>guitar</span>
+                <select
+                  value={noteBank}
+                  title="which DI recordings play sustained notes: Guitar-TECHS LP humbucker (string-aware, one dynamic) or FreePats Fender single-coil (two dynamics)"
+                  onChange={(e) => { void setNoteBank(e.target.value as "gtechs" | "fsbs"); }}
+                >
+                  <option value="gtechs">LP humbucker · Guitar-TECHS</option>
+                  <option value="fsbs">Fender · FreePats</option>
+                </select>
+              </div>
+              <div className="rig-row">
+                <span>pm bank</span>
+                <select
+                  value={pmSource}
+                  title="palm-mute sample source; 'custom import…' loads your own DI recordings (b1_v3_rr1.wav naming)"
+                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtx" | "gtechs" | "custom"); }}
+                >
+                  <option value="gtechs">LP humbucker · standard</option>
+                  <option value="gtx">Metal GTX · 7-string</option>
+                  <option value="bassvi">bass VI (built-in)</option>
+                  <option value="custom">custom import…</option>
+                </select>
+              </div>
+              {pmSource === "custom" && (
+                <div className="rig-row">
+                  <span className="pm-status">{pmBankInfo}</span>
+                  <button
+                    className="ghost" title="clear stored custom bank"
+                    onClick={async () => {
+                      await clearPmBank();
+                      setPmBankInfo(null);
+                      setPmSource("bassvi");
+                      samplerRef.current?.clearCustomPm();
+                    }}
+                  >✕</button>
+                </div>
+              )}
+              {pmSource !== "custom" && pmBankInfo && <span className="pm-status">{pmBankInfo}</span>}
+              <div className="rig-row">
                 <span>player rules</span>
                 <button
                   className={`rig-switch ${playerRules ? "on" : ""}`}
@@ -1674,16 +1700,6 @@ export default function TabEditor() {
                   className={`rig-switch ${landings ? "on" : ""}`}
                   title="after a hammer-on, pull-off, slide or bend, hand the note over to a real recording of the target pitch (on) or keep the resampled voice (off) — A/B"
                   onClick={() => setLandings(!landings)}
-                >
-                  <span className="rig-switch-knob" />
-                </button>
-              </div>
-              <div className="rig-row">
-                <span>feedback</span>
-                <button
-                  className={`rig-switch ${feedback ? "on" : ""}`}
-                  title="notes held with = or ~ for over a second swell into amp feedback on their overtone (the 12th low down, the octave higher up)"
-                  onClick={() => setFeedback(!feedback)}
                 >
                   <span className="rig-switch-knob" />
                 </button>
@@ -1714,6 +1730,8 @@ export default function TabEditor() {
                     {hybridStatus === "ready" ? "string model running" : hybridStatus === "loading" ? "loading…" : hybridStatus === "unavailable" ? "unavailable — playing samples" : "press play to load"}
                   </span>
                 </div>
+              )}
+                </>
               )}
             </section>
           )}

@@ -108,6 +108,12 @@ body::before {
   gap: 10px;
 }
 
+.rig-advanced header { padding-bottom: 0; }
+.rig-disclose {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: var(--bone-dim); letter-spacing: inherit; text-transform: inherit;
+}
+.rig-disclose:hover { color: var(--amber); }
 .rig-unit header {
   display: flex;
   align-items: center;
