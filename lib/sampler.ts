@@ -1308,7 +1308,7 @@ export class GuitarSampler {
           node.port.postMessage({ type: "init", wasmBinary, strings: 8 }, [wasmBinary]);
         });
         const out = ctx.createGain();
-        out.gain.value = 1.4; // level-matched to the FreePats voices (fit 2026-09-01)
+        out.gain.value = 0.5; // level-matched to the Guitar-TECHS voices (fit 2026-09-01)
         node.connect(out);
         this.stringNode = node;
         this.stringOut = out;
@@ -1352,18 +1352,18 @@ export class GuitarSampler {
 
   // per-string physics: lower strings are darker, stiffer (more dispersion),
   // looser (more tension glide) — Drop B on a 6-string, or a bass
-  // values from a banded-spectrum fit of the model against the FreePats DI
-  // low string (2026-09-01): bright loop, moderate loss, pickup 10% from the
-  // bridge with a 4.5 kHz coil resonance, two polarisations
+  // values from a banded-spectrum fit of the model against the Guitar-TECHS
+  // LP-humbucker DI low E (2026-09-01): dark loop, moderate loss, pickup 10%
+  // from the bridge with a 5 kHz coil resonance, two polarisations
   private stringDefaults(si: number) {
     const low = Math.min(1, si / 5);
-    this.sset(si, SP.BRIGHT, 0.78 - 0.08 * low);
-    this.sset(si, SP.LOSS, 0.8);
+    this.sset(si, SP.BRIGHT, 0.22 - 0.07 * low);
+    this.sset(si, SP.LOSS, 0.65);
     this.sset(si, SP.DISP, 0.06 + 0.08 * low);
     this.sset(si, SP.NONLIN, 0.04 + 0.03 * low);
     this.sset(si, SP.PICKPOS, 0.12);
     this.sset(si, SP.PICKUP, 0.1);
-    this.sset(si, SP.PICKUP_HZ, 4500);
+    this.sset(si, SP.PICKUP_HZ, 5000);
     this.sset(si, SP.PICKUP_Q, 1.2);
     this.sset(si, SP.TENSION, 4 + 6 * low);
     this.sset(si, SP.DIRECT, this.hybridSampleAttack ? 0 : 0.45);
