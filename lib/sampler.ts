@@ -960,9 +960,10 @@ export class GuitarSampler {
     const wound = bass || Math.min(fromMidi, toMidi) < 55;
     const speed = (frets * (bass ? 0.045 : 0.03)) / dur;    // ~3 cm per fret (4.5 on a 34" bass)
     // ~3000 windings/m on a guitar's wound strings; a bass's are coarser
-    const fc = Math.max(bass ? 300 : 500, Math.min(6000, (bass ? 1800 : 3000) * speed));
-    // a bass squeak is louder and the bass amp doesn't lift it the way the guitar rig does
-    const level = (bass ? 0.075 : wound ? 0.028 : 0.008) * Math.min(1, speed * 1.2);
+    const fc = Math.max(bass ? 300 : 500, Math.min(4500, (bass ? 1800 : 3000) * speed));
+    // a bass squeak is louder and the bass amp doesn't lift it the way the guitar rig does;
+    // kept under the note — a squeak is heard, not featured
+    const level = (bass ? 0.045 : wound ? 0.017 : 0.005) * Math.min(1, speed * 1.2);
     const src = ctx.createBufferSource();
     src.buffer = this.squeakBuf;
     const bp = ctx.createBiquadFilter();
