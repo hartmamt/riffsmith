@@ -94,6 +94,12 @@ export class GuitarSampler {
   // stroke tilt, pre-pick clamp, anti-repetition). Off = the plain sampler,
   // for A/B listening.
   playerRules = true;
+  // noise layer (part of the player rules): a powered-on floor under the
+  // amp, a pick scrape a few ms before each stroke, and the pick-hand thunk
+  // when a ringing note is stopped
+  private floorSrc: AudioBufferSourceNode | null = null;
+  private floorGain: GainNode | null = null;
+  private floorOn = false;
   pickingMode: "alternate" | "down" | "up" = "alternate";
   private pickDirDown = true;         // GLOBAL per performance, not per string
   doubleTrack = false;                // twin take panned L/R (built-in amp only)
@@ -400,6 +406,25 @@ export class GuitarSampler {
     }
     this.noiseBuf = nb;
 
+    // powered-on noise floor: pink-tilted noise, gated by playing, into the
+    // amp path only (never the DI monitor). -84 dBFS is a quiet humbucker rig;
+    // under a high-gain capture it's what makes the gaps between chugs breathe
+    const fl = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const fd = fl.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < fd.length; i++) {
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913;
+      fd[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2;
+    }
+    const floorSrc = ctx.createBufferSource();
+    floorSrc.buffer = fl; floorSrc.loop = true;
+    const floorGain = ctx.createGain();
+    floorGain.gain.value = 0;
+    floorSrc.connect(floorGain).connect(chain.input);
+    floorSrc.start();
+    this.floorSrc = floorSrc; this.floorGain = floorGain;
+
     this.ampIn = chain.input;
     this.diBus = diBus;
     this.drive = chain.tighten;
@@ -642,6 +667,7 @@ export class GuitarSampler {
     }
     const v = this.voices.get(si);
     if (!v) return;
+    if (v.articulation === "open" || v.articulation === "pinch") this.stopThunk(v, when);
     this.fadeVoice(v, when, fadeS ?? (fast ? 0.025 : 0.08));
     this.voices.delete(si);
   }
@@ -651,6 +677,60 @@ export class GuitarSampler {
     for (const k of [...this.voices.keys()]) this.stopVoice(k, now);
     this.stringNode?.port.postMessage({ type: "clearAll" });
     this.hybrid.clear();
+    this.floorSet(false, now);
+  }
+
+  private floorSet(on: boolean, when: number) {
+    if (!this.floorGain || !this.playerRules && on) return;
+    if (this.floorOn === on) return;
+    this.floorOn = on;
+    const g = this.floorGain.gain;
+    g.cancelScheduledValues(when);
+    g.setValueAtTime(Math.max(0.00001, g.value), when);
+    if (on) g.exponentialRampToValueAtTime(Math.pow(10, -84 / 20), when + 0.05);
+    else g.exponentialRampToValueAtTime(0.00001, when + 0.4);
+  }
+
+  // pick scrape: the plectrum drags over the winding a few ms before the
+  // string releases. Broadband, tilted to 2-6 kHz, louder on wound strings
+  // and hard picks; it leads the transient the way real pre-noise does.
+  private pickScrape(when: number, midi: number, velocity: number, art: Articulation) {
+    if (!this.noiseBuf || !this.playerRules || this.diMode) return;
+    const ctx = this.ctx;
+    const wound = midi < 55 ? 1 : 0.5;
+    const level = (art === "palm" ? 0.04 : 0.025) * wound * (0.6 + 0.4 * velocity);
+    const lead = 0.004 + (1 - velocity) * 0.006;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.value = 3800; bp.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(level, when - lead);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.006);
+    src.connect(bp).connect(g).connect(this.dest());
+    src.start(Math.max(ctx.currentTime, when - lead));
+    src.stop(when + 0.02);
+  }
+
+  // pick-hand stop: the low thump of the hand landing on a ringing string,
+  // quieter the longer the note has already decayed (rt_decay-style)
+  private stopThunk(v: StringVoice, when: number) {
+    if (!this.noiseBuf || !this.playerRules || this.diMode) return;
+    const age = Math.max(0, when - v.startedAt);
+    if (age < 0.06 || when > v.releaseAt) return; // nothing left to stop
+    const ctx = this.ctx;
+    const level = 0.09 * v.level * Math.pow(10, (-6 * age) / 20);
+    if (level < 0.002) return;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 350; lp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(level, when);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.03);
+    src.connect(lp).connect(g).connect(this.dest());
+    src.start(when);
+    src.stop(when + 0.05);
   }
 
   // short filtered noise blip — the fret/finger impact of legato techniques
@@ -763,6 +843,10 @@ export class GuitarSampler {
     // determine stroke BEFORE buffer selection so stroke-tagged banks apply
     const stroke = opts.stroke ?? (opts.isTwin ? (this.pickStroke ?? "d") : this.nextStroke(true));
     this.pickStroke = stroke;
+    if (!opts.isTwin && !opts.pickless) {
+      this.floorSet(true, when - 0.02);
+      if (art !== "dead") this.pickScrape(when, midi, velocity, art);
+    }
 
     let buffer: AudioBuffer | undefined;
     let sampleMidi = midi;
@@ -935,6 +1019,7 @@ export class GuitarSampler {
     }
     src.start(when, opts.pickless && art === "open" ? 0.028 : 0);
     if (attackOnly) src.stop(v.releaseAt + 0.05);
+    if (!opts.isTwin) this.floorSet(false, when + ring + 0.3);
     // no early src.stop: the envelope gates it, so legato can extend the voice
     if (!opts.isTwin && !attackOnly) {
       this.voices.set(si, v);

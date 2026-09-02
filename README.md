@@ -120,7 +120,7 @@ Chug riff: `m0 m0 m0 3 m0 m0 5 =`. Tremolo: `0 * * *`.
 ```sh
 npm install
 npm run dev     # http://localhost:3000
-npm test        # vitest: 25 tests over the pure scheduling/import layer
+npm test        # vitest: 29 tests over the pure scheduling/import layer
 ```
 
 Songs and rig settings persist in `localStorage`; custom palm-mute samples and the loaded NAM model persist in IndexedDB.
