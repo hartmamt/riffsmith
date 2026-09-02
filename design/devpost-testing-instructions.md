@@ -18,6 +18,8 @@ Everything runs client-side; songs are stored in your browser.
    - "That's too loose — all downstrokes, more mute pressure, double-track it."
      (uses `get_rig` / `set_rig`; watch the rig panel sliders move)
    - "Change bar 1 to 3/4 and add a bend on the last note."
+   - "Put a pinch harmonic on the last note of bar 4 and switch the amp to the Fender bank."
+     (uses the `^fret` articulation and `set_rig note_bank`)
    - Paste any ASCII guitar tab and say "import this and tell me what you kept."
 4. Every write returns the resulting tab so the agent verifies its own work;
    edits appear live in the grid and stay human-editable — click any cell the
@@ -31,6 +33,7 @@ window.__webmcp.list()                                  // the 15 tool names
 await window.__webmcp.call("get_song", {})              // read the open song
 await window.__webmcp.call("write_notes", { bar: 1, string: 6, cells: "m0 m0 x 0" })
 await window.__webmcp.call("set_rig", { picking: "down", tight: 0.8 })
+await window.__webmcp.call("set_rig", { engine: "hybrid" })         // physical string model (experimental)
 await window.__webmcp.call("play", { section: "INTRO", loop: true })
 ```
 The shim calls the exact same tool functions the native registration exposes.
@@ -48,7 +51,7 @@ library (persists across reloads), and an agent can switch between them:
 
 ## Source
 
-Repo: [REPO URL] — `npm install && npm run dev`, `npm test` runs the 25-test
+Repo: [REPO URL] — `npm install && npm run dev`, `npm test` runs the 29-test
 suite over the scheduling/import layer. WebMCP implementation:
 `lib/webmcp.ts` (tool definitions, serialized queue, read-after-write
 consistency, early registration).
