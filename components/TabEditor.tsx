@@ -268,6 +268,7 @@ export default function TabEditor() {
     if (!samplerRef.current) {
       const s = new GuitarSampler(audioRef.current);
       samplerRef.current = s;
+      (window as unknown as Record<string, unknown>).__riffsmithSampler = s; // for scripted renders/recordings
       s.noteBank = noteBankRef.current;
       s.playerRules = rulesRef.current;
       s.legatoLandings = landingsRef.current;
