@@ -6,6 +6,13 @@
       "credit": "trained by Matt Hartman on his own rig",
       "creditUrl": "https://riffsmith.app",
       "note": "Matt's capture; MIT-licensed with the repo, no attribution required."
+    },
+    {
+      "name": "RiffSmith Clean",
+      "url": "/nam/models/riffsmith-clean.nam",
+      "credit": "trained by Matt Hartman on his own rig",
+      "creditUrl": "https://riffsmith.app",
+      "note": "Matt's clean channel \u2014 redistributable, shipped in the repo."
     }
   ]
 }

@@ -144,7 +144,7 @@ Songs and rig settings persist in `localStorage`; custom palm-mute samples and t
 
 ## Credits and licenses
 
-The MIT license in `LICENSE` covers RiffSmith's own code and the bundled RiffSmith Distorted capture. Bundled third-party audio and engine assets carry their own licenses, listed here.
+The MIT license in `LICENSE` covers RiffSmith's own code and the bundled RiffSmith Distorted and RiffSmith Clean captures. Bundled third-party audio and engine assets carry their own licenses, listed here.
 
 Sample sources, as documented in `lib/sampler.ts`:
 
@@ -155,13 +155,13 @@ Sample sources, as documented in `lib/sampler.ts`:
 - Pitched palm mutes: **Pastabass "tagliatelle"** by Karoryfer Samples, royalty-free including redistribution. Squier Bass VI, flatwound, picked and muted; 2 velocity layers, 3 round robins.
 - **@opendaw/nam-wasm** (MIT), a WASM build of Steven Atkinson's NeuralAmpModelerCore v0.5.3 (MIT) with the A2 fast path. The NAM core license is included at `public/nam/LICENSE`.
 
-One NAM capture is bundled: **RiffSmith Distorted** (`public/nam/models/riffsmith-distorted.nam`), trained by Matt Hartman on his own rig with the TONE3000 trainer, and released with the repo under the MIT license. It is the default amp. Users can load any other `.nam` file.
+Two NAM captures are bundled, both trained by Matt Hartman on his own rig with the TONE3000 trainer and released with the repo under the MIT license: **RiffSmith Distorted** (`public/nam/models/riffsmith-distorted.nam`, the default amp) and **RiffSmith Clean** (`riffsmith-clean.nam`, a clean channel; set `tight` to 0 to keep the boost pedal out of it). Users can load any other `.nam` file.
 
 ## Submission notes (OpenAI WebMCP Challenge)
 
 - **Timeline.** The repository was scaffolded with Create Next App on 2026-08-23 and contained nothing but the scaffold. Everything else, including the entire WebMCP layer (`lib/webmcp.ts`, the 15 tools, the console shim, the bridge pattern) and the tab editor itself, was written between 2026-09-01 and the submission date, after the 2026-08-25 eligibility date. `git log` is the record.
 - **What is bundled.** Every sample bank in `public/samples/` is redistributable under the license in its `NOTICE.txt` (CC BY 4.0, CC0, or the vendor's royalty-free terms) and the modifications made for RiffSmith are documented there. The NAM inference engine is MIT.
-- **Amp capture.** The one Neural Amp Modeler capture the app ships with, RiffSmith Distorted, was trained by the author on his own rig and is part of the repository under the same MIT license, so the hosted demo and the repository are identical. Anyone can load a different `.nam` file; the built-in amp works with none.
+- **Amp captures.** Both Neural Amp Modeler captures the app ships with, RiffSmith Distorted and RiffSmith Clean, were trained by the author on his own rig and are part of the repository under the same MIT license, so the hosted demo and the repository are identical. Anyone can load a different `.nam` file; the built-in amp works with none.
 - **Secrets and services.** None. There is no backend, no API key, and no environment variable; the app is a static Next.js export that runs entirely in the browser.
 
 ## Roadmap
