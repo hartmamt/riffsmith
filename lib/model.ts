@@ -127,10 +127,11 @@ export function toAscii(song: Song, perLine = 4): string {
     const header = [chunk[0].label, chunk[0].sig ?? DEFAULT_SIG].filter(Boolean).join(" · ");
     lines.push(`[ ${header} ]`);
     const rows = Array.from({ length: strings }, (_, s) => `${label[s].padEnd(labelW)}|`);
+    // ONE column width for the whole line: the importer infers slot width per
+    // system, so a bar with "m10" must not be wider-slotted than its neighbours
+    const w = Math.max(1, ...chunk.flatMap((mm) => mm.cols.flat().map((v) => v.length))) + 1;
     for (const measure of chunk) {
       if (measure.repeatStart) for (let s = 0; s < strings; s++) rows[s] += ":";
-      // uniform column width per bar keeps the import grid exact
-      const w = Math.max(1, ...measure.cols.flat().map((v) => v.length)) + 1;
       for (let c = 0; c < measure.cols.length; c++) {
         const col = measure.cols[c];
         for (let s = 0; s < strings; s++) {

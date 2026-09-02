@@ -701,7 +701,7 @@ kbd {
 }
 .nam-error { color: var(--hot); font-size: 0.68rem; max-width: 180px; }
 
-.loop-toggle { color: var(--bone-faint); }
+.loop-toggle { color: var(--bone-dim); }
 
 .loop-toggle.on {
   color: var(--amber);

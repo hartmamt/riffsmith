@@ -74,7 +74,16 @@ function detectStride(sys: System, fallback: number): number {
   if (!gaps.length) return fallback;
   const counts = new Map<number, number>();
   for (const g of gaps) counts.set(g, (counts.get(g) ?? 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const commonest = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  // Sparse bars put tokens 2-3 slots apart, so the commonest gap can be a
+  // multiple of the real slot width. The slot width is the candidate that
+  // divides the most gaps; ties go to the commonest gap itself, then wider.
+  let best = commonest, bestScore = -1;
+  for (const c of [4, 3, 2]) {
+    const score = gaps.filter((g) => g % c === 0).length;
+    if (score > bestScore || (score === bestScore && c === commonest)) { best = c; bestScore = score; }
+  }
+  return best;
 }
 
 function parseSystemMeasures(

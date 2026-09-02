@@ -641,7 +641,7 @@ export class GuitarSampler {
     this.pmCustomRrs.clear();
   }
 
-  // load a PM bank from served URLs (e.g. the local-eval Metal GTX set)
+  // load a PM bank from served URLs (a served manifest, e.g. the Guitar-TECHS mutes)
   async loadPmFromUrls(files: { midi: number; vel: number; rr: number; url: string; stroke?: "d" | "u" }[]): Promise<number> {
     const withBytes = await Promise.all(
       files.map(async (f) => {
@@ -1300,7 +1300,7 @@ export class GuitarSampler {
       tone.Q.value = 0.6;
       // the built-in chug source is dark (flatwound Bass VI: almost nothing
       // above 1 kHz), so a tight grip has to close well into the 400–1k band
-      // to be audible; roundwound banks (GTX / custom) show the full sweep
+      // to be audible; roundwound banks (Guitar-TECHS / custom) show the full sweep
       const endHz = 6000 * Math.pow(0.12, m) + 300 * velocity; // 0 → 6 kHz · 0.5 → 2.1 kHz · 1 → 0.7 kHz
       const closeS = (0.14 - 0.09 * m) * (1 + (Math.random() - 0.5) * 0.3);
       tone.frequency.setValueAtTime(12000, when);

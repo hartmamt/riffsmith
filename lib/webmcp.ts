@@ -9,7 +9,7 @@
 
 import {
   DEFAULT_SIG, DEFAULT_SPB, GRID_VALUES, Measure, Song, TUNING_PRESETS,
-  emptyMeasure, reshapeMeasure, sigBeats, toAscii,
+  emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS,
 } from "./model";
 import { importAscii } from "./importAscii";
 
@@ -24,7 +24,7 @@ export type RigState = {
   engine: "new" | "old" | "hybrid" | "model";
   engine_status: string;
   cab: boolean;
-  pm_bank: "bassvi" | "gtx" | "gtechs" | "custom";
+  pm_bank: "bassvi" | "gtechs" | "custom";
   note_bank: "gtechs" | "fsbs";
   player_rules: boolean;
   legato_landings: boolean;
@@ -47,7 +47,7 @@ export type WebMcpActions = {
   setLoopMode: (on: boolean) => void;
   rig: RigState;
   setRig: (patch: Partial<Omit<RigState, "nam_model" | "nam_models" | "pm_bank" | "note_bank">>) => void;
-  switchPmBank: (v: "bassvi" | "gtx" | "gtechs" | "custom") => Promise<string>;
+  switchPmBank: (v: "bassvi" | "gtechs" | "custom") => Promise<string>;
   setNoteBank: (v: "gtechs" | "fsbs") => Promise<string>;
   selectNamModel: (name: string | null) => Promise<string>;
 };
@@ -187,8 +187,10 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
       },
       execute: async (args) => {
         const a = get();
+        if (args.tuning_preset !== undefined && !TUNING_PRESETS[String(args.tuning_preset)]) return fail(`Unknown tuning_preset "${String(args.tuning_preset)}". Presets: ${Object.keys(TUNING_PRESETS).join(", ")}.`);
         const tuning = TUNING_PRESETS[String(args.tuning_preset ?? "")] ?? TUNING_PRESETS["E Standard"];
-        const sig = typeof args.sig === "string" && /^\d+\/\d+$/.test(args.sig) ? args.sig : DEFAULT_SIG;
+        if (args.sig !== undefined && !SIGS.includes(String(args.sig))) return fail(`Unsupported time signature "${String(args.sig)}". Supported: ${SIGS.join(", ")}.`);
+        const sig = typeof args.sig === "string" ? args.sig : DEFAULT_SIG;
         const barsRequested = Math.max(1, Number(args.bars) || 4);
         const nBars = Math.min(256, barsRequested);
         const song: Song = {
@@ -331,12 +333,13 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         if (!s) return fail("Song not found.");
         const requested = Math.max(1, Number(args.count) || 1);
         const count = Math.min(512, requested);
+        if (args.sig !== undefined && !SIGS.includes(String(args.sig))) return fail(`Unsupported time signature "${String(args.sig)}". Supported: ${SIGS.join(", ")}.`);
         mutateSong(a, s.id, (cur) => {
           const at = args.after_bar !== undefined
             ? Math.min(cur.measures.length, Math.max(0, Number(args.after_bar) || 0))
             : cur.measures.length;
           const model = cur.measures[at - 1] ?? cur.measures[cur.measures.length - 1];
-          const sig = typeof args.sig === "string" && /^\d+\/\d+$/.test(args.sig) ? args.sig : model?.sig ?? DEFAULT_SIG;
+          const sig = typeof args.sig === "string" ? args.sig : model?.sig ?? DEFAULT_SIG;
           const spb = GRID_VALUES.includes(Number(args.grid)) ? Number(args.grid) : model?.spb ?? DEFAULT_SPB;
           const fresh = Array.from({ length: count }, () => emptyMeasure(cur.tuning.length, sig, spb));
           const measures = [...cur.measures];
@@ -375,12 +378,13 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         if (!s) return fail("Song not found.");
         const mi = barIndex(s, args.bar);
         if (mi === null) return fail(`Bar must be 1-${s.measures.length}.`);
+        if (args.sig !== undefined && !SIGS.includes(String(args.sig))) return fail(`Unsupported time signature "${String(args.sig)}". Supported: ${SIGS.join(", ")}.`);
         mutateSong(a, s.id, (cur) => ({
           ...cur,
           measures: cur.measures.map((m, i) => {
             if (i !== mi) return m;
             let next: Measure = { ...m };
-            if (typeof args.sig === "string" && /^\d+\/\d+$/.test(args.sig)) {
+            if (typeof args.sig === "string") {
               next = reshapeMeasure(next, cur.tuning.length, args.sig, next.spb ?? DEFAULT_SPB);
             }
             if (GRID_VALUES.includes(Number(args.grid))) {
@@ -550,7 +554,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "set_rig",
       description:
-        "Set amp/performance rig settings (any subset). tight 0-1: the boost pedal in front of the amp (low cut, mid hump, soft clip) — raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (through two extra capture instances when a NAM model is loaded). engine: 'new' = sampled voices, 'hybrid' = sampled attack exciting a physical string model (experimental), 'model' = the string model alone with no sampled pick, 'old' only for A/B comparison. engine_status in get_rig says whether the model is actually running. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: bassvi | gtx | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
+        "Set amp/performance rig settings (any subset). tight 0-1: the boost pedal in front of the amp (low cut, mid hump, soft clip) — raise for surgically tight modern-metal chugs. volume 0-2. mute_grip 0-1: palm-mute pressure, higher = shorter/choked. picking: 'down' keeps breakdowns uniformly forceful. double_track: independent second take hard-panned L/R (through two extra capture instances when a NAM model is loaded). engine: 'new' = sampled voices, 'hybrid' = sampled attack exciting a physical string model (experimental), 'model' = the string model alone with no sampled pick, 'old' only for A/B comparison. engine_status in get_rig says whether the model is actually running. cab: add the synthetic cabinet after a NAM model — keep false for full-rig captures. pm_bank: gtechs | bassvi | custom. loop: loop playback. nam_model: switch the amp to one of get_rig.nam_models (name, case-insensitive) or 'none' for the built-in amp — adding a brand-new .nam file still requires the human's file picker.",
       inputSchema: {
         type: "object",
         properties: {
@@ -565,7 +569,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           feedback: { type: "boolean", description: "notes held over ~1.3 s (with = or ~) swell into amp feedback on their overtone; off by default" },
           bass_rig: { type: "string", enum: ["bass", "guitar"], description: "for bass tunings: 'bass' = its own clean-to-gritty amp (tight = drive), 'guitar' = through the guitar rig/capture for distorted bass" },
           cab: { type: "boolean" },
-          pm_bank: { type: "string", enum: ["gtechs", "gtx", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (standard tuning), gtx = 7-string (drop tunings), bassvi, custom" },
+          pm_bank: { type: "string", enum: ["gtechs", "bassvi", "custom"], description: "palm-mute source: gtechs = LP humbucker (pitched down for drop tunings), bassvi = built-in flatwound Bass VI, custom = the user's imported bank" },
           note_bank: { type: "string", enum: ["gtechs", "fsbs"], description: "sustained-note guitar: gtechs = LP humbucker, fsbs = Fender single-coil" },
           nam_model: { type: "string", description: "a name from get_rig.nam_models, or 'none' for the built-in amp" },
           nam_input: { type: "number", minimum: 0.1, maximum: 2, description: "DI level into the NAM capture (1 = raw sample level; default 0.45 ≈ -7 dB, where captures are trained)" },
@@ -602,8 +606,9 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         a.setRig(patch as Parameters<WebMcpActions["setRig"]>[0]);
         let bankNote: string | undefined;
         if (args.pm_bank !== undefined) {
-          if (!["bassvi", "gtx", "gtechs", "custom"].includes(String(args.pm_bank))) return fail("pm_bank must be gtechs, gtx, bassvi, or custom.");
-          bankNote = await a.switchPmBank(args.pm_bank as "bassvi" | "gtx" | "gtechs" | "custom");
+          if (!["bassvi", "gtechs", "custom"].includes(String(args.pm_bank))) return fail("pm_bank must be gtechs, bassvi, or custom.");
+          bankNote = await a.switchPmBank(args.pm_bank as "bassvi" | "gtechs" | "custom");
+          if (/file picker/.test(bankNote)) return fail("No custom palm-mute bank is stored in this browser. The file picker was opened for the human to choose .wav files; the pm_bank setting was NOT changed.");
         }
         let noteNote: string | undefined;
         if (args.note_bank !== undefined) {
@@ -731,6 +736,7 @@ function serialized(t: ToolDef): ToolDef {
 
 function registerTools(): string {
   const tools = buildTools(() => actionsHolder!()).map(serialized);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped browser globals (WebMCP is not in lib.dom yet)
   const w = window as unknown as Record<string, any>;
   if (w.__webmcpRegistered) return "webmcp: already registered";
   w.__webmcpRegistered = true;
@@ -748,6 +754,7 @@ function registerTools(): string {
     },
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same
   const mc = (document as unknown as Record<string, any>).modelContext ?? w.navigator?.modelContext;
   if (mc?.provideContext) {
     // atomic: the whole tool set lands in one snapshot

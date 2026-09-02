@@ -194,9 +194,9 @@ export default function TabEditor() {
   const [doubled, setDoubled] = useState(() =>
     typeof window === "undefined" ? false : localStorage.getItem("gs.double") === "1");
   const [pmBankInfo, setPmBankInfo] = useState<string | null>(null);
-  const [pmSource, setPmSource] = useState<"bassvi" | "gtx" | "gtechs" | "custom">(() =>
+  const [pmSource, setPmSource] = useState<"bassvi" | "gtechs" | "custom">(() =>
     typeof window === "undefined" ? "gtechs"
-      : (localStorage.getItem("gs.pmSource") as "bassvi" | "gtx" | "gtechs" | "custom" | null) ?? "gtechs");
+      : ((localStorage.getItem("gs.pmSource") === "gtx" ? "gtechs" : localStorage.getItem("gs.pmSource")) as "bassvi" | "gtechs" | "custom" | null) ?? "gtechs");
   const [noteBank, setNoteBankState] = useState<"gtechs" | "fsbs">(() =>
     typeof window === "undefined" ? "gtechs" : ((localStorage.getItem("gs.noteBank") as "gtechs" | "fsbs" | null) ?? "gtechs"));
   const noteBankRef = useRef<"gtechs" | "fsbs">("gtechs");
@@ -287,7 +287,7 @@ export default function TabEditor() {
       // restore persisted setup: pm bank choice, custom samples, NAM model + cab
       s.ready().then(async () => {
         try {
-          // default chug source is the real 7-string mutes (Metal GTX); the
+          // default chug source is the Guitar-TECHS mutes; the
           // flatwound Bass VI bank stays available as a choice
           const src = localStorage.getItem("gs.pmSource") ?? "gtechs";
           if (src === "gtechs") {
@@ -298,26 +298,6 @@ export default function TabEditor() {
             if (recs.length) {
               const n = await s.loadCustomPm(recs);
               if (n) { setPmSource("custom"); setPmBankInfo(`custom ×${n}`); }
-            }
-          } else if (src === "gtx") {
-            const man = await fetch("/samples/gtx/manifest.json").then((r) => r.json());
-            const n = await s.loadPmFromUrls(
-              man.files.map((f: { midi: number; vel: number; rr: number; file: string; stroke?: "d" | "u" }) => ({
-                ...f, url: `/samples/gtx/${f.file}`,
-              }))
-            );
-            if (n) { setPmSource("gtx"); setPmBankInfo(`GTX ×${n}`); }
-          }
-        } catch {}
-        try {
-          const saved = await kvGet<{ name: string; json: string }>("namModel");
-          if (saved) {
-            const res = await s.loadNamModel(saved.json, saved.name);
-            if (res.ok) {
-              setNamStatus(saved.name);
-              const cab = localStorage.getItem("gs.cabOn") === "1";
-              setCabOn(cab);
-              s.setCabBypass(!cab);
             }
           } else if (localStorage.getItem("gs.namChoice") !== "1") {
             // first run: ship the demo capture as the default amp until the user picks something
@@ -425,7 +405,8 @@ export default function TabEditor() {
       const { m, c, s } = sel;
       const cur = song.measures[m]?.cols[c]?.[s] ?? "";
       const move = (dm: number, dc: number, ds: number) => {
-        let nm = m, nc = c + dc, ns = Math.min(nStrings - 1, Math.max(0, s + ds));
+        let nm = m, nc = c + dc;
+        const ns = Math.min(nStrings - 1, Math.max(0, s + ds));
         if (nc >= song.measures[nm].cols.length) {
           if (m < song.measures.length - 1) { nm = m + 1; nc = 0; }
           else nc = song.measures[nm].cols.length - 1;
@@ -803,7 +784,7 @@ export default function TabEditor() {
     }));
 
   // switch the palm-mute sample bank (shared by the rig UI and WebMCP)
-  const switchPmBank = useCallback(async (v: "bassvi" | "gtx" | "gtechs" | "custom"): Promise<string> => {
+  const switchPmBank = useCallback(async (v: "bassvi" | "gtechs" | "custom"): Promise<string> => {
     const s = ensureSampler();
     await s.ready();
     localStorage.setItem("gs.pmSource", v);
@@ -818,22 +799,6 @@ export default function TabEditor() {
       setPmSource("bassvi");
       setPmBankInfo(null);
       return "bass VI (built-in)";
-    }
-    if (v === "gtx") {
-      try {
-        const man = await fetch("/samples/gtx/manifest.json").then((r) => r.json());
-        const n = await s.loadPmFromUrls(
-          man.files.map((f: { midi: number; vel: number; rr: number; file: string; stroke?: "d" | "u" }) => ({
-            ...f, url: `/samples/gtx/${f.file}`,
-          }))
-        );
-        setPmSource("gtx");
-        setPmBankInfo(`GTX ×${n}`);
-        return `Metal GTX (${n} samples)`;
-      } catch {
-        setPmBankInfo("✕ GTX bank not available");
-        return "GTX bank not available";
-      }
     }
     const recs = await loadPmSamples().catch(() => []);
     if (recs.length) {
@@ -1393,6 +1358,7 @@ export default function TabEditor() {
             <div className="rig-row">
               <span>sound</span>
               <select
+                aria-label="sound"
                 value={song.sound ?? "synth"}
                 onChange={(e) => {
                   const sound = e.target.value as "synth" | "guitar" | "guitar-di";
@@ -1500,6 +1466,7 @@ export default function TabEditor() {
               <div className="rig-slider">
                 <span>tight</span>
                 <input
+                  aria-label="tight"
                   className="level-slider" type="range" min={0} max={1} step={0.05}
                   value={tight}
                   title="pre-distortion low cut + mid emphasis + controlled gain"
@@ -1511,6 +1478,7 @@ export default function TabEditor() {
               <div className="rig-slider">
                 <span>volume</span>
                 <input
+                  aria-label="volume"
                   className="level-slider" type="range" min={0} max={2} step={0.05}
                   value={ampLevel}
                   onChange={(e) => {
@@ -1525,6 +1493,7 @@ export default function TabEditor() {
               <div className="rig-slider">
                 <span>input</span>
                 <input
+                  aria-label="input"
                   className="level-slider" type="range" min={0.1} max={2} step={0.05}
                   value={namInput}
                   title="DI level into the capture. Captures are trained on a guitar's own output (peaks around -10 dBFS); 0.45 puts our samples there. Push it for more gain, pull it back if it fizzes."
@@ -1536,6 +1505,7 @@ export default function TabEditor() {
               <div className="rig-slider">
                 <span>room</span>
                 <input
+                  aria-label="room"
                   className="level-slider" type="range" min={0} max={1} step={0.05}
                   value={room}
                   title="The room the cab sits in: early reflections and a 0.3 s tail. 0 = bone dry DI-into-amp, 0.15 = a mic'd cab in a live room."
@@ -1554,6 +1524,7 @@ export default function TabEditor() {
               <div className="rig-slider">
                 <span>mute grip</span>
                 <input
+                  aria-label="mute grip"
                   className="level-slider" type="range" min={0} max={1} step={0.05}
                   value={muteStr}
                   title="palm-mute pressure: left = loose/raw DI, right = tight/choked"
@@ -1662,10 +1633,9 @@ export default function TabEditor() {
                 <select
                   value={pmSource}
                   title="palm-mute sample source; 'custom import…' loads your own DI recordings (b1_v3_rr1.wav naming)"
-                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtx" | "gtechs" | "custom"); }}
+                  onChange={(e) => { void switchPmBank(e.target.value as "bassvi" | "gtechs" | "custom"); }}
                 >
                   <option value="gtechs">LP humbucker · standard</option>
-                  <option value="gtx">Metal GTX · 7-string</option>
                   <option value="bassvi">bass VI (built-in)</option>
                   <option value="custom">custom import…</option>
                 </select>

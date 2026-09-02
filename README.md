@@ -121,7 +121,7 @@ Chug riff: `m0 m0 m0 3 m0 m0 5 =`. Tremolo: `0 * * *`.
 ```sh
 npm install
 npm run dev     # http://localhost:3000
-npm test        # vitest: 29 tests over the pure scheduling/import layer
+npm test        # vitest: 31 tests over the pure scheduling/import layer
 ```
 
 Songs and rig settings persist in `localStorage`; custom palm-mute samples and the loaded NAM model persist in IndexedDB.
@@ -153,7 +153,6 @@ Sample sources, as documented in `lib/sampler.ts`:
 - Alternative sustained notes (Fender single-coil, two dynamics): **Electric Guitar FSBS (direct)** by the FreePats project, CC0. DI Fender electric, bridge pickup, standard tuning with a dropped low C, two pick dynamics (hard ×4 round robins, soft ×2), 48 kHz. Trimmed to 3.5 s and level-matched for RiffSmith (`public/samples/fsbs/NOTICE.txt`).
 - Unpitched dead hits (and fallback sustains): **Emilyguitar** by Karoryfer Samples, CC0. The "muted" noises in that library are unpitched string-muting sounds and are used here only for dead hits, never for pitched mutes.
 - Pitched palm mutes: **Pastabass "tagliatelle"** by Karoryfer Samples, royalty-free including redistribution. Squier Bass VI, flatwound, picked and muted; 2 velocity layers, 3 round robins.
-- Alternate palm-mute bank: **Metal GTX** mutes by Unreal Instruments, license-free with no credit required per the bundled terms. Served from `public/samples/gtx/` via its `manifest.json` and selected with the `gtx` palm-mute bank option.
 - **@opendaw/nam-wasm** (MIT), a WASM build of Steven Atkinson's NeuralAmpModelerCore v0.5.3 (MIT) with the A2 fast path. The NAM core license is included at `public/nam/LICENSE`.
 
 One NAM capture is bundled: **RiffSmith Distorted** (`public/nam/models/riffsmith-distorted.nam`), trained by Matt Hartman on his own rig with the TONE3000 trainer, and released with the repo under the MIT license. It is the default amp. Users can load any other `.nam` file.
