@@ -86,7 +86,7 @@ export function reshapeMeasure(m: Measure, strings: number, sig: string, spb: nu
 }
 
 export function newSong(title = "Untitled riff"): Song {
-  const tuning = [...TUNING_PRESETS["Drop B"]];
+  const tuning = [...TUNING_PRESETS["E Standard"]];
   return {
     id: Math.random().toString(36).slice(2, 10),
     title,

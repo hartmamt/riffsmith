@@ -75,7 +75,7 @@ export function makeTremoloAuditionSong(): Song {
 
 // First-run starter: what a new visitor sees. Grieg's "In the Hall of the
 // Mountain King" (Peer Gynt, 1875 — public domain). It is written in B minor,
-// so on a Drop B guitar the whole theme lives on the two lowest strings.
+// so the whole theme lives on the two lowest strings (E standard: E and A).
 // Bars 1-4 palm-muted (the pizzicato opening), 5-8 the answer a fifth up,
 // then the theme tremolo-picked in 16th-note triplets and a chord finale.
 function barLines(
@@ -94,10 +94,11 @@ function barLines(
 }
 
 export function makeStarterSong(): Song {
-  const tuning = [...TUNING_PRESETS["Drop B"]];
-  // Drop B strings, top to bottom: 0 C#4 · 1 G#3 · 2 E3 · 3 B2 · 4 F#2 · 5 B1
-  const B1 = 5, F2 = 4, B2 = 3;
-  const chord = (cells: string) => ({ [B1]: cells, [F2]: cells, [B2]: cells });
+  const tuning = [...TUNING_PRESETS["E Standard"]];
+  // E standard strings, top to bottom: 0 E4 · 1 B3 · 2 G3 · 3 D3 · 4 A2 · 5 E2
+  const B1 = 5, F2 = 4, B2 = 3; // low E, A, D
+  // E5: open low E, A and D at the 2nd fret
+  const chord = (cells: string) => ({ [B1]: cells, [F2]: cells.replace(/0/g, "2"), [B2]: cells.replace(/0/g, "2") });
   const trem = "0 * * 2 * * 3 * * 5 * * 7 * * 3 * * 7 * * * * *";
   return {
     id: Math.random().toString(36).slice(2, 10),
@@ -107,12 +108,12 @@ export function makeStarterSong(): Song {
     tuning,
     sound: "guitar",
     measures: [
-      // THEME — first phrase on the low B, palm-muted
+      // THEME — first phrase on the low E, palm-muted
       barLines(tuning, { [B1]: "m0 m2 m3 m5 m7 m3 m7 =" }, "4/4", 2, "THEME", { repeatStart: true }),
       barLines(tuning, { [B1]: "m6 m2 m6 = m5 m1 m5 =" }, "4/4", 2),
       barLines(tuning, { [B1]: "m0 m2 m3 m5 m7 m3 m7 =" }, "4/4", 2),
       barLines(tuning, { [B1]: "m0 . m7 m3 m7 = . .", [F2]: ". m3 . . . . m3 =" }, "4/4", 2),
-      // answer a fifth up, on the F# string, open notes
+      // answer a fourth up, on the A string, open notes
       barLines(tuning, { [F2]: "0 2 3 5 7 3 7 =" }, "4/4", 2),
       barLines(tuning, { [F2]: "6 2 6 = 5 1 5 =" }, "4/4", 2),
       barLines(tuning, { [F2]: "0 2 3 5 7 3 7 =" }, "4/4", 2),
@@ -122,7 +123,7 @@ export function makeStarterSong(): Song {
       barLines(tuning, { [B1]: "6 * * 2 * * 6 * * * * * 5 * * 1 * * 5 * * * * *" }, "4/4", 6),
       barLines(tuning, { [B1]: trem }, "4/4", 6),
       barLines(tuning, { [B1]: "0 * * 10 * * 7 * * 3 * * 7 * * * * * 10 * * * * *" }, "4/4", 6),
-      // FINALE — B5 stabs, then let it ring
+      // FINALE — E5 stabs, then let it ring
       barLines(tuning, chord("0 . 0 . 0 . 0 ."), "4/4", 2, "FINALE"),
       barLines(tuning, chord("0 ~ = = = = = ="), "4/4", 2),
     ],

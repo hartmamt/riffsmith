@@ -187,7 +187,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
       },
       execute: async (args) => {
         const a = get();
-        const tuning = TUNING_PRESETS[String(args.tuning_preset ?? "")] ?? TUNING_PRESETS["Drop B"];
+        const tuning = TUNING_PRESETS[String(args.tuning_preset ?? "")] ?? TUNING_PRESETS["E Standard"];
         const sig = typeof args.sig === "string" && /^\d+\/\d+$/.test(args.sig) ? args.sig : DEFAULT_SIG;
         const barsRequested = Math.max(1, Number(args.bars) || 4);
         const nBars = Math.min(256, barsRequested);
