@@ -156,6 +156,13 @@ Sample sources, as documented in `lib/sampler.ts`:
 
 No NAM captures are bundled. Users load their own `.nam` files.
 
+## Submission notes (OpenAI WebMCP Challenge)
+
+- **Timeline.** The repository was scaffolded with Create Next App on 2026-08-23 and contained nothing but the scaffold. Everything else, including the entire WebMCP layer (`lib/webmcp.ts`, the 15 tools, the console shim, the bridge pattern) and the tab editor itself, was written between 2026-09-01 and the submission date, after the 2026-08-25 eligibility date. `git log` is the record.
+- **What is bundled.** Every sample bank in `public/samples/` is redistributable under the license in its `NOTICE.txt` (CC BY 4.0, CC0, or the vendor's royalty-free terms) and the modifications made for RiffSmith are documented there. The NAM inference engine is MIT.
+- **What is not bundled.** No Neural Amp Modeler captures are in the repository. The app runs with its built-in amp and lets anyone load a `.nam` file. The hosted demo at riffsmith.app additionally serves one capture (a 5150 by jpisoutoftune, TONE3000) as a demonstration; that file lives in the gitignored `public/nam/models/` directory and is not part of the open-source submission. A deployment gets the same behaviour by dropping any capture and a `manifest.json` in that directory.
+- **Secrets and services.** None. There is no backend, no API key, and no environment variable; the app is a static Next.js export that runs entirely in the browser.
+
 ## Roadmap
 
 - Let an agent load a NAM model by name from a user-approved set (today loading a `.nam` requires the human to pick a file).
