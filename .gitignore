@@ -50,7 +50,7 @@ lib/blindedByFearDemo.ts
 lib/blindedByFearDemo.test.ts
 
 # bundled demo NAM captures (site-only, not redistributable)
-public/nam/models/
+public/nam/models/5150-stealth-red.nam
 
 # rust build output
 string-engine/target/

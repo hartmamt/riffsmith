@@ -1,0 +1,11 @@
+{
+  "models": [
+    {
+      "name": "RiffSmith Distorted",
+      "url": "/nam/models/riffsmith-distorted.nam",
+      "credit": "trained by Matt Hartman on his own rig",
+      "creditUrl": "https://riffsmith.app",
+      "note": "Matt's capture; MIT-licensed with the repo, no attribution required."
+    }
+  ]
+}
