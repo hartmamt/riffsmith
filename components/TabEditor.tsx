@@ -11,7 +11,7 @@ import { GuitarSampler } from "@/lib/sampler";
 import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf,
 } from "@/lib/schedule";
-import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
+import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
 const STORE_KEY = "guitarscrobble.songs.v1";
@@ -1075,6 +1075,24 @@ export default function TabEditor() {
               }}
             >
               guitar showcase
+            </button>
+            <button
+              className="btn audition-item"
+              title="create the clean showcase (E standard): arpeggios, a legato melody, double stops and open chords — also switches the rig to the clean capture with the boost off"
+              onClick={() => {
+                const t = makeCleanShowcaseSong();
+                setSongs((prev) => {
+                  const rest = (prev ?? []).filter((s) => s.title !== "Clean Showcase");
+                  return [t, ...rest];
+                });
+                setActiveId(t.id);
+                setSel({ m: 0, c: 0, s: 0 });
+                ensureSampler().ready();
+                setTight(0); localStorage.setItem("gs.tight", "0");
+                if (bundledNam.some((b) => /clean/i.test(b.name))) void selectNamModel(bundledNam.find((b) => /clean/i.test(b.name))!.name);
+              }}
+            >
+              clean showcase
             </button>
             <button
               className="btn audition-item"

@@ -316,3 +316,44 @@ export function makeBassShowcaseSong(): Song {
     updatedAt: Date.now(),
   };
 }
+
+// "Clean Showcase": E standard through the clean channel — arpeggios that
+// ring into each other, a legato melody with vibrato and slides, double
+// stops, and open chords let ring. Picking it in the audition menu also
+// switches the rig to the clean capture with the boost pedal off.
+export function makeCleanShowcaseSong(): Song {
+  const tuning = [...TUNING_PRESETS["E Standard"]];
+  const E4 = 0, B3 = 1, G3 = 2, D3 = 3, A2 = 4, E2 = 5;
+  const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
+    barLines(tuning, lines, sig, spb, label, extra);
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: "Clean Showcase",
+    artist: "RiffSmith",
+    bpm: 96,
+    tuning,
+    sound: "guitar",
+    measures: [
+      // arpeggios: Em · C · G · D, every note left ringing under the next
+      bl({ [E2]: "0 . . . . . . .", [D3]: ". 2 . . . . 2 .", [G3]: ". . 0 . . . . .", [B3]: ". . . 0 . . . 0", [E4]: ". . . . 0 . . ." }, "4/4", 2, "ARPEGGIOS · let ring", { repeatStart: true }),
+      bl({ [A2]: "3 . . . . . . .", [D3]: ". 2 . . . . 2 .", [G3]: ". . 0 . . . . .", [B3]: ". . . 1 . . . 1", [E4]: ". . . . 0 . . ." }, "4/4", 2),
+      bl({ [E2]: "3 . . . . . . .", [D3]: ". 0 . . . . 0 .", [G3]: ". . 0 . . . . .", [B3]: ". . . 0 . . . 0", [E4]: ". . . . 3 . . ." }, "4/4", 2),
+      bl({ [D3]: "0 . . . . . . .", [G3]: ". 2 . . . . 2 .", [B3]: ". . 3 . . . . .", [E4]: ". . . 2 . . . 2" }, "4/4", 2, undefined, { repeatEnd: 2 }),
+      // a melody on the top two strings: hammer-ons, pull-offs, slides, vibrato
+      bl({ [B3]: "7 h8 p7 . 5 . 3 ~", [E4]: ". . . 7 . . . ." }, "4/4", 2, "MELODY · legato, slides, vibrato"),
+      bl({ [B3]: "3 /5 = = 5 h7 p5 =", [E4]: ". . . . . . . ." }, "4/4", 2),
+      bl({ [B3]: "8 ~ = = 7 . 5 .", [E4]: ". . . . . 7 . 5" }, "4/4", 2),
+      bl({ [B3]: "3 . 3 b = r ~ =", [E4]: "0 . . . . . . ." }, "4/4", 2),
+      // double stops in fourths, then thirds
+      bl({ [B3]: "3 . 3 . 5 . 7 =", [E4]: "3 . 3 . 5 . 7 =" }, "4/4", 2, "DOUBLE STOPS"),
+      bl({ [G3]: "4 . 4 . 5 . 7 =", [B3]: "5 . 5 . 7 . 8 =" }, "4/4", 2),
+      // open chords, strummed and left to ring
+      bl({ [E2]: "0 ~ = = = = = =", [A2]: "2 = = = = = = =", [D3]: "2 = = = = = = =", [G3]: "0 = = = = = = =", [B3]: "0 = = = = = = =", [E4]: "0 = = = = = = =" }, "4/4", 2, "CHORDS · let ring"),
+      bl({ [A2]: "3 ~ = = = = = =", [D3]: "2 = = = = = = =", [G3]: "0 = = = = = = =", [B3]: "1 = = = = = = =", [E4]: "0 = = = = = = =" }, "4/4", 2),
+      bl({ [E2]: "3 ~ = = = = = =", [A2]: "2 = = = = = = =", [D3]: "0 = = = = = = =", [G3]: "0 = = = = = = =", [B3]: "0 = = = = = = =", [E4]: "3 = = = = = = =" }, "4/4", 2),
+      bl({ [E2]: "0 ~ = = = = = =", [A2]: "2 = = = = = = =", [D3]: "2 = = = = = = =", [G3]: "0 = = = = = = =", [B3]: "0 = = = = = = =", [E4]: "0 = = = = = = =" }, "4/4", 2),
+      bl({ [E2]: "= = = = = = = =", [A2]: "= = = = = = = =", [D3]: "= = = = = = = =", [G3]: "= = = = = = = =", [B3]: "= = = = = = = =", [E4]: "= = = = = = = =" }, "4/4", 2),
+    ],
+    updatedAt: Date.now(),
+  };
+}
