@@ -11,3 +11,8 @@ recordings (one note per 4 s window), trimmed, RMS-normalised and encoded
 to MP3 for RiffSmith by Matt Hartman, 2026. Files: n<midi>_s<string>.mp3
 (sustain), pm<midi>_s<string>.mp3 (palm mute), ph<midi>_s<string>.mp3
 string 1 = high E, 6 = low E.
+Modification (2026-09-02): the low E string (n*_s6) on this recording had
+almost no upper partials (its 1-2 kHz content sat ~28 dB below the same
+pitches on the A string). Those files had their partials 4-12 regenerated
+from the recorded fundamentals and fitted to the A-string spectrum. The
+original cuts are the dataset's; the restored files are RiffSmith's.

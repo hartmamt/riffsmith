@@ -21,6 +21,8 @@ const NOTE_ROOTS = [37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 
 // FreePats "Electric Guitar FSBS (direct)" (CC0): Fender bridge pickup, standard
 // tuning, 2 dynamics (hard ×4 RR, soft ×2 RR). Roots include a low C2 on the
 // dropped 6th string, so Drop-C/B notes are within a semitone or two.
+const GT_LOW = 40;       // Guitar-TECHS lowest recorded note (low E)
+const GT_DROP_MAX = 8;   // how far below it the LP bank is pitched down (Drop B = 5, Drop A = 7)
 const FSBS_ROOTS = [36, 40, 41, 45, 48, 50, 52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85];
 const PM_ROOTS = [37, 40, 43, 46, 49, 52, 55, 58, 61, 64, 67];
 const MUTE_IDS = [1, 2, 3, 4, 5]; // unpitched dead hits, high → low register
@@ -705,7 +707,11 @@ export class GuitarSampler {
       if (buffer) return { buffer, root };
     }
     if (this.noteBank === "gtechs" && this.gtNotes.size) {
-      const cands = this.gtCandidates(this.gtNotes, midi, tol, si);
+      let cands = this.gtCandidates(this.gtNotes, midi, tol, si);
+      // drop tunings: below the bank's low E the SAME guitar's low-E
+      // recordings are pitched down (transient kept, tilt corrected in
+      // pickNote) rather than switching to another guitar for one string
+      if (!cands.length && midi < GT_LOW && midi >= GT_LOW - GT_DROP_MAX) cands = this.gtCandidates(this.gtNotes, midi, GT_LOW - midi + 1, si);
       if (cands.length) {
         const c = cands[this.nextRr(`g${midi}_${si ?? "x"}`, cands.length) - 1];
         const buffer = this.buffers.get(c.key);
@@ -895,19 +901,59 @@ export class GuitarSampler {
     src.stop(when + 0.03);
   }
 
-  private attachVibrato(v: StringVoice, when: number) {
+  // Fretted vibrato is one-sided: the finger pushes the string sharp and lets
+  // it back to pitch, so the note's floor stays in tune (dir = +1). On a held
+  // bend the hand relaxes and re-bends, so it swings flat of the bent pitch
+  // (dir = -1). It starts after the note speaks and widens over ~300 ms; the
+  // rate wanders a little.
+  private attachVibrato(v: StringVoice, when: number, dir: 1 | -1 = 1) {
     if (v.vibrato) return;
     const ctx = this.ctx;
+    const rate = 5.6 + (Math.random() - 0.5) * 0.8;
+    const width = (this.playerRules ? 42 : 35) + (Math.random() - 0.5) * 10; // cents peak-to-peak
     const lfo = ctx.createOscillator();
     lfo.type = "sine";
-    lfo.frequency.value = 5.5;
-    const depth = ctx.createGain();
-    depth.gain.setValueAtTime(0, when);
-    depth.gain.linearRampToValueAtTime(35, when + 0.15); // cents, fast onset
+    lfo.frequency.setValueAtTime(rate, when);
+    lfo.frequency.linearRampToValueAtTime(rate + 0.3, when + 1.2); // a touch faster as it goes
+    const depth = ctx.createGain(); // LFO amplitude = half the width
+    const dc = ctx.createConstantSource(); // the other half, so the swing is one-sided
+    const dcGain = ctx.createGain();
+    const onset = this.playerRules ? 0.06 : 0;
+    depth.gain.setValueAtTime(0, when + onset);
+    depth.gain.linearRampToValueAtTime((dir * width) / 2, when + onset + 0.3);
+    dcGain.gain.setValueAtTime(0, when + onset);
+    dcGain.gain.linearRampToValueAtTime((dir * width) / 2, when + onset + 0.3);
     lfo.connect(depth).connect(v.src.detune);
+    dc.connect(dcGain).connect(v.src.detune);
     lfo.start(when);
+    dc.start(when);
     lfo.stop(v.releaseAt + 0.2);
+    dc.stop(v.releaseAt + 0.2);
     v.vibrato = { lfo, depth };
+  }
+
+  // a bend is a finger, not a ramp: it moves fast at first and settles into
+  // the target by ear (ease-out); a quick bend overshoots a few cents and
+  // comes back. Slides move at a near-constant speed with a soft start/stop.
+  private curveTo(param: AudioParam, from: number, to: number, when: number, dur: number, kind: "bend" | "slide") {
+    const n = 64;
+    const curve = new Float32Array(n);
+    const over = kind === "bend" && dur < 0.3 ? Math.min(10, Math.abs(to - from) * 0.05) * Math.sign(to - from) : 0;
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1);
+      let k: number;
+      if (kind === "bend") {
+        k = 1 - Math.pow(1 - u, 2.4);                     // ease-out
+        k += (over / Math.max(1, Math.abs(to - from))) * Math.sin(Math.PI * Math.min(1, u * 1.35)) * (u > 0.4 ? 1 : 0);
+      } else {
+        k = u * u * (3 - 2 * u);                            // smoothstep
+      }
+      curve[i] = from + (to - from) * k;
+    }
+    curve[n - 1] = to;
+    param.cancelScheduledValues(when);
+    param.setValueAtTime(from, when);
+    param.setValueCurveAtTime(curve, when, Math.max(0.005, dur));
   }
 
   private scheduleEnvelope(v: StringVoice, when: number, ringSeconds: number, level: number, attack: number, softStart = 1) {
@@ -962,7 +1008,9 @@ export class GuitarSampler {
     // never pitch-shift a chug more than one semitone: if the custom bank's
     // nearest root is farther than that, fall back to the built-in bank
     // (whose 3-semitone spacing keeps every note within ±1)
-    if (this.pmCustomRoots.length && Math.abs(this.nearest(this.pmCustomRoots, midi) - midi) <= 1) {
+    const pmLow = this.pmCustomRoots.length ? Math.min(...this.pmCustomRoots) : 0;
+    const pmDrop = this.pmCustomRoots.length && midi < pmLow && pmLow - midi <= GT_DROP_MAX;
+    if (this.pmCustomRoots.length && (Math.abs(this.nearest(this.pmCustomRoots, midi) - midi) <= 1 || pmDrop)) {
       const root = this.nearest(this.pmCustomRoots, midi);
       const vels = this.pmCustomVels.get(root) ?? [1];
       // accents live in 0.72–1.0, so map that band across the recorded
@@ -1105,8 +1153,7 @@ export class GuitarSampler {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     if (art !== "dead" && opts.glideFromMidi !== undefined && opts.glideDur) {
-      src.detune.setValueAtTime((opts.glideFromMidi - sampleMidi) * 100, when);
-      src.detune.linearRampToValueAtTime(shiftCents, when + opts.glideDur);
+      this.curveTo(src.detune, (opts.glideFromMidi - sampleMidi) * 100, shiftCents, when, opts.glideDur, "slide");
       if (!opts.isTwin && art === "open") this.slideSqueak(when, opts.glideFromMidi, midi, opts.glideDur);
     } else {
       // tension glide: start sharp, settle onto the pitch as the string's
@@ -1182,11 +1229,45 @@ export class GuitarSampler {
       out.connect(color);
       out = color;
     }
-    src.connect(env);
+    // Pitching a recording down stretches its pick transient and drags the
+    // guitar's body/pickup resonances down with it (a real Drop-B string has
+    // the same guitar around a lower fundamental). For ≥2-semitone drops the
+    // body plays through a low-pass that opens over 30 ms plus a tilt that
+    // puts the resonances back, and the recording's own UNSHIFTED transient
+    // (high-passed) rides on top — the pick is the recording, at real speed.
+    const semisDown = -shiftCents / 100;
+    const split = art !== "dead" && semisDown >= 1.5 && !opts.glideDur;
+    let head: AudioNode = src;
+    if (split) {
+      const open = ctx.createBiquadFilter();
+      open.type = "lowpass"; open.Q.value = 0.5;
+      open.frequency.setValueAtTime(1400, when);
+      open.frequency.exponentialRampToValueAtTime(16000, when + 0.03);
+      const tilt = ctx.createBiquadFilter();
+      tilt.type = "highshelf"; tilt.frequency.value = 1200;
+      tilt.gain.value = Math.min(6, 0.8 * semisDown);
+      src.connect(open).connect(tilt);
+      head = tilt;
+    }
+    head.connect(env);
     out.connect(destNode);
 
     // no per-hit normalization: velocity layers + accent scaling only
     const level = (0.55 + 0.45 * velocity) * strokeGain * (art === "dead" ? (this.instrument === "bass" ? 2.2 : 1.25) : 1);
+
+    if (split && art !== "palm") {
+      const tr = ctx.createBufferSource();
+      tr.buffer = buffer;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 1400; hp.Q.value = 0.5;
+      const tg = ctx.createGain();
+      tg.gain.setValueAtTime(level * 0.9, when);
+      tg.gain.setValueAtTime(level * 0.9, when + 0.012);
+      tg.gain.exponentialRampToValueAtTime(0.0001, when + 0.04);
+      tr.connect(hp).connect(tg).connect(destNode);
+      tr.start(when);
+      tr.stop(when + 0.05);
+    }
 
     // PM decay: mute pressure sets the base, the gap to the next hit caps it
     let ring: number;
@@ -1568,14 +1649,12 @@ export class GuitarSampler {
     }
     const from = (v.currentMidi - v.sampleMidi) * 100 + v.bendCents;
     const to = (v.currentMidi - v.sampleMidi) * 100 + cents;
-    v.src.detune.cancelScheduledValues(when);
-    v.src.detune.setValueAtTime(from, when);
-    v.src.detune.linearRampToValueAtTime(to, when + dur);
+    this.curveTo(v.src.detune, from, to, when, dur, "bend");
     v.bendCents = cents;
     const ring = Math.max(0.9, dur + 0.5) + (opts.sustain ?? 0);
     this.extendRing(v, when, ring, 1);
     const nv = this.swapVoice(si, v.currentMidi, cents, when + dur, 0.06);
-    if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02);
+    if (opts.vibrato) this.attachVibrato(nv ?? v, when + dur + 0.02, cents > 0 ? -1 : 1);
   }
 
   /** Slide the ringing voice to a new pitch (same continuous machinery). */
@@ -1594,9 +1673,7 @@ export class GuitarSampler {
       return;
     }
     const target = (midi - v.sampleMidi) * 100;
-    v.src.detune.cancelScheduledValues(when);
-    v.src.detune.setValueAtTime((v.currentMidi - v.sampleMidi) * 100 + v.bendCents, when);
-    v.src.detune.linearRampToValueAtTime(target, when + dur);
+    this.curveTo(v.src.detune, (v.currentMidi - v.sampleMidi) * 100 + v.bendCents, target, when, dur, "slide");
     v.currentMidi = midi;
     v.bendCents = 0;
     const ring = dur + 0.8 + (opts.sustain ?? 0);
