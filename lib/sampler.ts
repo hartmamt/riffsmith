@@ -620,9 +620,9 @@ export class GuitarSampler {
   // sustained-note sample for a pitch and pick strength. Guitar-TECHS (one
   // dynamic, string-aware) by default; FreePats picks its layer by velocity
   // (accents 0.72-1.0 → soft below ~0.86, hard above); Emily as the fallback
-  private openBuffer(midi: number, velocity: number, si?: number): { buffer: AudioBuffer | undefined; root: number } {
+  private openBuffer(midi: number, velocity: number, si?: number, tol = 1): { buffer: AudioBuffer | undefined; root: number } {
     if (this.noteBank === "gtechs" && this.gtNotes.size) {
-      const cands = this.gtCandidates(this.gtNotes, midi, 1, si);
+      const cands = this.gtCandidates(this.gtNotes, midi, tol, si);
       if (cands.length) {
         const c = cands[this.nextRr(`g${midi}_${si ?? "x"}`, cands.length) - 1];
         const buffer = this.buffers.get(c.key);
@@ -1224,7 +1224,7 @@ export class GuitarSampler {
     const v = this.voices.get(si);
     if (!v || v.articulation !== "open") return null;
     const target = heldMidi + Math.round(heldCents / 100);
-    const { buffer, root } = this.openBuffer(target, 0.9, si);
+    const { buffer, root } = this.openBuffer(target, 0.9, si, 6);
     if (!buffer) return null;
     const ctx = this.ctx;
     const src = ctx.createBufferSource();
@@ -1233,11 +1233,17 @@ export class GuitarSampler {
     const env = ctx.createGain();
     const lvl = Math.max(0.0001, (v.level || 0.7) * levelScale);
     const ringLeft = Math.max(0.35, v.releaseAt - when);
-    // linear crossfade in/out: exponential ramps leave a hole at the midpoint
-    env.gain.setValueAtTime(0, when);
-    env.gain.linearRampToValueAtTime(lvl, when + fadeS);
-    env.gain.setValueAtTime(lvl, when + Math.max(fadeS, ringLeft * 0.7));
-    env.gain.exponentialRampToValueAtTime(0.0001, when + ringLeft);
+    // equal-power crossfade: two different recordings aren't phase-locked, so
+    // a linear fade dips ~3 dB mid-way and the recovery reads as a soft attack
+    const N = 33;
+    const fadeIn = new Float32Array(N), fadeOut = new Float32Array(N);
+    const applyIn = (g: AudioParam, target: number) => {
+      for (let i = 0; i < N; i++) fadeIn[i] = target * Math.sin((i / (N - 1)) * Math.PI / 2);
+      g.setValueCurveAtTime(fadeIn, when, fadeS);
+      g.setValueAtTime(target, when + Math.max(fadeS, ringLeft * 0.7));
+      g.exponentialRampToValueAtTime(0.0001, when + ringLeft);
+    };
+    applyIn(env.gain, lvl);
     const color = this.strokeColor(this.pickStroke ?? "d", 0);
     src.connect(env);
     env.connect(color);
@@ -1256,10 +1262,7 @@ export class GuitarSampler {
       if (rOld > 1e-5 && rNew > 1e-5) {
         const ratio = Math.max(0.2, Math.min(3, rOld / rNew));
         env.gain.cancelScheduledValues(when);
-        env.gain.setValueAtTime(0, when);
-        env.gain.linearRampToValueAtTime(lvl * ratio, when + fadeS);
-        env.gain.setValueAtTime(lvl * ratio, when + Math.max(fadeS, ringLeft * 0.7));
-        env.gain.exponentialRampToValueAtTime(0.0001, when + ringLeft);
+        applyIn(env.gain, lvl * ratio);
       }
     }
     src.start(when, offset);
@@ -1268,8 +1271,8 @@ export class GuitarSampler {
     try {
       const g = v.env.gain;
       g.cancelScheduledValues(when);
-      g.setValueAtTime(lvl, when);
-      g.linearRampToValueAtTime(0, when + fadeS);
+      for (let i = 0; i < N; i++) fadeOut[i] = lvl * Math.cos((i / (N - 1)) * Math.PI / 2);
+      g.setValueCurveAtTime(fadeOut, when, fadeS);
       v.src.stop(when + fadeS + 0.05);
       if (v.vibrato) v.vibrato.lfo.stop(when + fadeS + 0.05);
     } catch {}
@@ -1297,23 +1300,17 @@ export class GuitarSampler {
       if (this.voices.get(si)) this.fretImpact(when, style === "tap" ? 0.09 : 0.05);
       return;
     }
-    const ramp = style === "hammer" ? 0.022 : style === "pull" ? 0.03 : 0.015;
+    // a pull-off releases the string onto the lower fret at once: no glide,
+    // no level dip, no impact — those all read as a re-pick under gain
+    const ramp = style === "hammer" ? 0.022 : style === "pull" ? 0.008 : 0.015;
     const target = (midi - v.sampleMidi) * 100;
     v.src.detune.cancelScheduledValues(when);
     v.src.detune.setValueAtTime((v.currentMidi - v.sampleMidi) * 100 + v.bendCents, when);
     v.src.detune.linearRampToValueAtTime(target, when + ramp);
     v.currentMidi = midi;
     v.bendCents = 0;
-    // pulls dip the level briefly; hammers/taps get a fret-impact click
-    if (style === "pull") {
-      const g = v.env.gain;
-      const cur = Math.max(0.0001, g.value);
-      g.cancelScheduledValues(when);
-      g.setValueAtTime(cur, when);
-      g.linearRampToValueAtTime(cur * 0.8, when + 0.015);
-      g.linearRampToValueAtTime(cur * 0.92, when + 0.05);
-    }
-    this.fretImpact(when, style === "tap" ? 0.08 : style === "hammer" ? 0.04 : 0.012);
+    // hammers/taps get a small fret-impact click; pulls get nothing
+    if (style !== "pull") this.fretImpact(when, style === "tap" ? 0.08 : 0.04);
     // refresh the ring so the new note doesn't die on the old envelope
     const ring = 0.9 + (opts.sustain ?? 0);
     const lvl = Math.max(0.0001, v.env.gain.value) * (style === "pull" ? 0.92 : 0.97);
@@ -1321,7 +1318,7 @@ export class GuitarSampler {
     g.setValueAtTime(lvl, when + 0.06);
     g.exponentialRampToValueAtTime(0.0001, when + ring);
     v.releaseAt = when + ring;
-    const nv = this.swapVoice(si, midi, 0, when + ramp + 0.01, 0.05, style === "pull" ? 0.8 : 1);
+    const nv = this.swapVoice(si, midi, 0, when + ramp + 0.01, style === "pull" ? 0.09 : 0.05, style === "pull" ? 0.85 : 1);
     if (opts.vibrato) this.attachVibrato(nv ?? v, when + 0.08);
   }
 
