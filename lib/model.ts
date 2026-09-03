@@ -50,6 +50,10 @@ export const TUNING_PRESETS: Record<string, string[]> = {
   "Drop C#": ["Eb4", "Bb3", "Gb3", "Db3", "Ab2", "Db2"],
   "Drop C": ["D4", "A3", "F3", "C3", "G2", "C2"],
   "Drop B": ["C#4", "G#3", "E3", "B2", "F#2", "B1"],
+  "7-string B Standard": ["E4", "B3", "G3", "D3", "A2", "E2", "B1"],
+  "7-string Drop A": ["E4", "B3", "G3", "D3", "A2", "E2", "A1"],
+  "8-string F# Standard": ["E4", "B3", "G3", "D3", "A2", "E2", "B1", "F#1"],
+  "8-string Drop E": ["E4", "B3", "G3", "D3", "A2", "E2", "B1", "E1"],
   "Bass E Std": ["G2", "D2", "A1", "E1"],
   "Bass Drop B": ["E2", "B1", "F#1", "B0"],
 };

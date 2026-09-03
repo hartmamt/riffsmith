@@ -2,8 +2,7 @@
 
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEFAULT_SIG, DEFAULT_SPB, GRIDS, Measure as MeasureT, SIGS, Song, TUNING_PRESETS,
-  emptyMeasure, isFret, midiToFreq, newSong, noteToMidi, reshapeMeasure, toAscii,
+  DEFAULT_SIG, DEFAULT_SPB, GRIDS, Measure as MeasureT, SIGS, Song, TUNING_PRESETS, emptyMeasure, isFret, midiToFreq, newSong, noteToMidi, reshapeMeasure, toAscii, sigBeats, sigDenom,
 } from "@/lib/model";
 import { importAscii } from "@/lib/importAscii";
 import { WebMcpActions, notifyWebMcpCommit, registerWebMcp } from "@/lib/webmcp";
@@ -11,6 +10,7 @@ import { GuitarSampler } from "@/lib/sampler";
 import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf, songDurationSeconds } from "@/lib/schedule";
 import { track } from "@/lib/analytics";
+import { transposeMeasures } from "@/lib/transpose";
 import { decodeSharedSong, sharedPayloadFromLocation, shareUrlFor } from "@/lib/share";
 import { downloadBlob, encodeMp3, startRecording } from "@/lib/exportMp3";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
@@ -60,7 +60,7 @@ type Sel = { m: number; c: number; s: number };
 // One bar's grid, memoized: only the bar whose content, selection, or
 // playhead changed re-renders — sequential edits on large songs stay fast.
 const MeasureGrid = memo(function MeasureGrid({
-  measure, m, nStrings, tuning, selC, selS, playC, onSelect,
+  measure, m, nStrings, tuning, selC, selS, playC, onSelect, barSelected, onSelectBar,
 }: {
   measure: MeasureT;
   m: number;
@@ -70,17 +70,25 @@ const MeasureGrid = memo(function MeasureGrid({
   selS: number;
   playC: number; // playhead column in this bar, -1 otherwise
   onSelect: (m: number, c: number, s: number) => void;
+  barSelected: boolean; // part of a whole-bar selection (clipboard / transpose target)
+  onSelectBar: (m: number, extend: boolean) => void;
 }) {
   const spb = measure.spb ?? DEFAULT_SPB;
   return (
     <div
       className={
         "measure" +
+        (barSelected ? " barsel" : "") +
         (measure.repeatStart ? " repeat-start" : "") +
         (measure.repeatEnd && measure.repeatEnd > 1 ? " repeat-end" : "")
       }
     >
-      <div className="measure-num">
+      <div
+        className="measure-num"
+        role="button"
+        title="click to select this bar (shift-click to extend): ⌘C/⌘X/⌘V copy, cut, paste · ⌫ delete · ⌘↑/⌘↓ transpose"
+        onClick={(e) => onSelectBar(m, e.shiftKey)}
+      >
         {measure.repeatStart ? "‖: " : ""}
         {m + 1}{measure.sig ? ` · ${measure.sig}` : ""}
         {measure.repeatEnd && measure.repeatEnd > 1 ? ` :‖ ×${measure.repeatEnd}` : ""}
@@ -133,6 +141,27 @@ export default function TabEditor() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [activeId, setActiveId] = useState<string>("");
   const [sel, setSel] = useState<Sel>({ m: 0, c: 0, s: 0 });
+  // a range of whole bars (shift-click the bar numbers): clipboard, delete, transpose act on it
+  const [barSel, setBarSel] = useState<{ from: number; to: number } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+  const showNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 2500);
+  }, []);
+  // undo/redo: song-level snapshots, recorded by the (debounced) persistence
+  // effect so a burst of typing is one step
+  const undoStack = useRef<{ id: string; song: Song }[]>([]);
+  const redoStack = useRef<{ id: string; song: Song }[]>([]);
+  const prevSongs = useRef<Map<string, Song>>(new Map());
+  const applyingHistory = useRef(false);
+  const barClipboard = useRef<MeasureT[] | null>(null);
+  const [countIn, setCountIn] = useState(() => typeof window === "undefined" ? false : localStorage.getItem("gs.countIn") === "1");
+  const [clickTrack, setClickTrack] = useState(() => typeof window === "undefined" ? false : localStorage.getItem("gs.click") === "1");
+  const countInRef = useRef(false); const clickRef = useRef(false);
+  useEffect(() => { countInRef.current = countIn; localStorage.setItem("gs.countIn", countIn ? "1" : "0"); }, [countIn]);
+  useEffect(() => { clickRef.current = clickTrack; localStorage.setItem("gs.click", clickTrack ? "1" : "0"); }, [clickTrack]);
   const [playPos, setPlayPos] = useState<[number, number] | null>(null); // [measure, col]
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState<"idle" | "copied" | "failed">("idle");
@@ -391,14 +420,40 @@ export default function TabEditor() {
     }
   }, []);
 
+  // persist + record history. Debounced so a burst of typing is one undo
+  // step; `flushPersist` runs a pending record immediately (undo/redo call
+  // it, so an agent's edit → undo chain never races the debounce).
+  const pendingPersist = useRef<{ timer: number; run: () => void } | null>(null);
+  const flushPersist = useCallback(() => {
+    const p = pendingPersist.current;
+    if (!p) return;
+    window.clearTimeout(p.timer); pendingPersist.current = null; p.run();
+  }, []);
   useEffect(() => {
     if (!songs) return;
-    // debounced: rapid sequential edits (typing, agent writes) coalesce
-    const t = window.setTimeout(
-      () => localStorage.setItem(STORE_KEY, JSON.stringify(songs)),
-      250
-    );
-    return () => window.clearTimeout(t);
+    // the undo basis for a song is the state it had when we first saw it;
+    // set it now (not in the debounced run) so a burst that starts right
+    // after creation still records its first step
+    for (const s of songs) if (!prevSongs.current.has(s.id)) prevSongs.current.set(s.id, s);
+    const run = () => {
+      pendingPersist.current = null;
+      localStorage.setItem(STORE_KEY, JSON.stringify(songs));
+      const cur = songs.find((s) => s.id === activeId);
+      if (cur) {
+        const prev = prevSongs.current.get(cur.id);
+        if (applyingHistory.current) {
+          applyingHistory.current = false;
+        } else if (prev && prev !== cur && (JSON.stringify(prev.measures) !== JSON.stringify(cur.measures) || prev.tuning.join() !== cur.tuning.join() || prev.bpm !== cur.bpm || prev.title !== cur.title)) {
+          undoStack.current.push({ id: cur.id, song: prev });
+          if (undoStack.current.length > 200) undoStack.current.shift();
+          redoStack.current = redoStack.current.filter((r) => r.id !== cur.id);
+        }
+        prevSongs.current.set(cur.id, cur);
+      }
+    };
+    const timer = window.setTimeout(run, 250);
+    pendingPersist.current = { timer, run };
+    return () => { window.clearTimeout(timer); if (pendingPersist.current?.timer === timer) pendingPersist.current = { timer, run }; };
   }, [songs]);
 
   const song = useMemo(
@@ -443,6 +498,11 @@ export default function TabEditor() {
 
   const onSelectCell = useCallback((m: number, c: number, s: number) => {
     setSel({ m, c, s });
+    setBarSel(null);
+  }, []);
+  const onSelectBar = useCallback((m: number, extend: boolean) => {
+    setBarSel((cur) => extend && cur ? { from: Math.min(cur.from, m), to: Math.max(cur.to, m) } : { from: m, to: m });
+    setSel((cur) => ({ m, c: 0, s: cur.s }));
   }, []);
 
   const setCell = useCallback((m: number, c: number, st: number, value: string) => {
@@ -458,6 +518,96 @@ export default function TabEditor() {
       return { ...s, measures };
     });
   }, [updateSong]);
+
+  const restoreSnapshot = useCallback((snap: { id: string; song: Song }) => {
+    applyingHistory.current = true;
+    prevSongs.current.set(snap.id, snap.song);
+    setSongs((prev) => prev ? prev.map((s) => (s.id === snap.id ? { ...snap.song, updatedAt: Date.now() } : s)) : prev);
+    setSel((cur) => ({ m: Math.min(cur.m, Math.max(0, snap.song.measures.length - 1)), c: 0, s: cur.s }));
+    setBarSel(null);
+  }, []);
+  const undo = useCallback((): boolean => {
+    flushPersist();
+    const idx = undoStack.current.map((x) => x.id).lastIndexOf(activeId);
+    if (idx < 0) return false;
+    const [snap] = undoStack.current.splice(idx, 1);
+    const cur = songRef.current; if (cur) redoStack.current.push({ id: cur.id, song: cur });
+    restoreSnapshot(snap); return true;
+  }, [activeId, restoreSnapshot, flushPersist]);
+  const redo = useCallback((): boolean => {
+    flushPersist();
+    const idx = redoStack.current.map((x) => x.id).lastIndexOf(activeId);
+    if (idx < 0) return false;
+    const [snap] = redoStack.current.splice(idx, 1);
+    const cur = songRef.current; if (cur) undoStack.current.push({ id: cur.id, song: cur });
+    restoreSnapshot(snap); return true;
+  }, [activeId, restoreSnapshot, flushPersist]);
+  const undoRef = useRef(undo); undoRef.current = undo;
+  const flushPersistRef = useRef(flushPersist); flushPersistRef.current = flushPersist;
+  const redoRef = useRef(redo); redoRef.current = redo;
+
+  // the bars an edit applies to: the shift-selected range, else the current bar
+  const targetRange = useCallback((): { from: number; to: number } => barSel ?? { from: sel.m, to: sel.m }, [barSel, sel.m]);
+  const cloneBars = (ms: MeasureT[]) => ms.map((m) => ({ ...m, cols: m.cols.map((c) => [...c]) }));
+  const copyBars = useCallback((cut = false) => {
+    const s = songRef.current; if (!s) return;
+    const r = targetRange();
+    barClipboard.current = cloneBars(s.measures.slice(r.from, r.to + 1));
+    if (cut) {
+      if (s.measures.length - (r.to - r.from + 1) < 1) { showNotice("can't cut every bar"); return; }
+      updateSong((cur) => ({ ...cur, measures: cur.measures.filter((_, i) => i < r.from || i > r.to) }));
+      setSel({ m: Math.max(0, r.from - 1), c: 0, s: sel.s }); setBarSel(null);
+    }
+    showNotice(`${r.to - r.from + 1} bar${r.to > r.from ? "s" : ""} ${cut ? "cut" : "copied"}`);
+  }, [targetRange, updateSong, sel.s, showNotice]);
+  const pasteBars = useCallback(() => {
+    const clip = barClipboard.current; if (!clip || !clip.length) { showNotice("nothing to paste"); return; }
+    const r = targetRange(); const at = r.to + 1;
+    updateSong((cur) => ({ ...cur, measures: [...cur.measures.slice(0, at), ...cloneBars(clip).map((m) => ({ ...m, label: undefined })), ...cur.measures.slice(at)] }));
+    setSel({ m: at, c: 0, s: sel.s }); setBarSel(clip.length > 1 ? { from: at, to: at + clip.length - 1 } : null);
+    showNotice(`${clip.length} bar${clip.length > 1 ? "s" : ""} pasted`);
+  }, [targetRange, updateSong, sel.s, showNotice]);
+  const deleteBars = useCallback(() => {
+    const s = songRef.current; if (!s) return;
+    const r = targetRange();
+    if (s.measures.length - (r.to - r.from + 1) < 1) { showNotice("a song keeps at least one bar"); return; }
+    updateSong((cur) => ({ ...cur, measures: cur.measures.filter((_, i) => i < r.from || i > r.to) }));
+    setSel({ m: Math.max(0, r.from - 1), c: 0, s: sel.s }); setBarSel(null);
+  }, [targetRange, updateSong, sel.s, showNotice]);
+  // slide the bar's contents one slot left or right (wrapping), riff-shifting
+  const shiftBar = useCallback((dir: -1 | 1) => {
+    const m = sel.m;
+    updateSong((cur) => ({ ...cur, measures: cur.measures.map((meas, i) => {
+      if (i !== m) return meas;
+      const n = meas.cols.length; const cols = meas.cols.map((_, ci) => meas.cols[(ci - dir + n) % n]);
+      return { ...meas, cols };
+    }) }));
+  }, [sel.m, updateSong]);
+  const transposeBy = useCallback((semis: number, wholeSong = false) => {
+    const s = songRef.current; if (!s) return;
+    const r = wholeSong ? { from: 0, to: s.measures.length - 1 } : targetRange();
+    const res = transposeMeasures(s, semis, r.from, r.to);
+    if (!res.ok) { showNotice(res.error); return; }
+    updateSong((cur) => ({ ...cur, measures: res.measures }));
+    showNotice(`${wholeSong ? "song" : r.to > r.from ? `bars ${r.from + 1}-${r.to + 1}` : `bar ${r.from + 1}`} ${semis > 0 ? "up" : "down"} ${Math.abs(semis)}`);
+  }, [targetRange, updateSong, showNotice]);
+  // apply a tuning (high → low) and reshape every bar to its string count
+  const applyTuning = useCallback((notes: string[]) => {
+    updateSong((s) => ({
+      ...s,
+      tuning: [...notes],
+      measures: s.measures.map((m) => ({ ...m, cols: m.cols.map((col) => Array.from({ length: notes.length }, (_, si) => col[si] ?? "")) })),
+    }));
+  }, [updateSong]);
+  const [customTuningText, setCustomTuningText] = useState<string | null>(null);
+  const commitCustomTuning = useCallback(() => {
+    if (customTuningText === null) return;
+    const raw = customTuningText.trim().split(/[\s,]+/).filter(Boolean).map((n) => n[0].toUpperCase() + n.slice(1));
+    if (raw.length < 3 || raw.length > 9 || raw.some((n) => noteToMidi(n) === null)) { showNotice("tuning: 3-9 notes like E2 A2 D3 G3 B3 E4"); return; }
+    const midi = raw.map((n) => noteToMidi(n)!);
+    const notes = midi[0] < midi[midi.length - 1] ? [...raw].reverse() : raw; // accept low→high too
+    applyTuning(notes); setCustomTuningText(null);
+  }, [customTuningText, applyTuning, showNotice]);
 
   // ---- keyboard entry ----
   useEffect(() => {
@@ -484,6 +634,17 @@ export default function TabEditor() {
         setSel({ m: nm, c: nc, s: ns });
       };
 
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z") { if (e.shiftKey) redoRef.current(); else undoRef.current(); e.preventDefault(); return; }
+      if (mod && e.key.toLowerCase() === "y") { redoRef.current(); e.preventDefault(); return; }
+      if (mod && e.key.toLowerCase() === "c") { copyBars(false); e.preventDefault(); return; }
+      if (mod && e.key.toLowerCase() === "x") { copyBars(true); e.preventDefault(); return; }
+      if (mod && e.key.toLowerCase() === "v") { pasteBars(); e.preventDefault(); return; }
+      if (mod && e.key === "ArrowUp") { transposeBy(1, e.altKey); e.preventDefault(); return; }
+      if (mod && e.key === "ArrowDown") { transposeBy(-1, e.altKey); e.preventDefault(); return; }
+      if (e.altKey && !mod && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { shiftBar(e.key === "ArrowLeft" ? -1 : 1); e.preventDefault(); return; }
+      if ((e.key === "Backspace" || e.key === "Delete") && barSel) { deleteBars(); e.preventDefault(); return; }
+      if (e.key === "Escape" && barSel) { setBarSel(null); return; }
       if (/^\d$/.test(e.key)) {
         let value: string;
         const prefixed = cur.match(/^([/\\hptm^])(\d{0,2})$/);
@@ -533,7 +694,7 @@ export default function TabEditor() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sel, song, setCell, nStrings, showImport]);
+  }, [sel, song, setCell, nStrings, showImport, barSel, copyBars, pasteBars, deleteBars, transposeBy, shiftBar]);
 
   // ---- playback ----
   const stop = useCallback(() => {
@@ -620,9 +781,10 @@ export default function TabEditor() {
   }, []);
 
   // export: record one real-time pass through the rig, then encode to MP3
-  const exportMp3 = useCallback(async () => {
-    const s = songRef.current; if (!s || exporting) return;
-    if ((s.sound ?? "synth") === "synth") { setExporting("switch sound to guitar + amp first"); window.setTimeout(() => setExporting(null), 3000); return; }
+  const exportMp3 = useCallback(async (): Promise<{ ok: boolean; seconds?: number; error?: string }> => {
+    const s = songRef.current; if (!s) return { ok: false, error: "no song open" };
+    if (exporting) return { ok: false, error: "an export is already running" };
+    if ((s.sound ?? "synth") === "synth") { setExporting("switch sound to guitar + amp first"); window.setTimeout(() => setExporting(null), 3000); return { ok: false, error: "the song's sound is the synth; set sound to guitar first" }; }
     const sampler = ensureSampler();
     await sampler.ready();
     const wasLoop = loopRef.current; loopRef.current = false;
@@ -648,13 +810,16 @@ export default function TabEditor() {
       downloadBlob(blob, `${s.title.replace(/[^\w\- ]+/g, "").trim() || "riffsmith"}.mp3`);
       track("mp3_exported", { bars: s.measures.length, seconds: Math.round(buffer.duration) });
       setExporting("saved ✓");
+      return { ok: true, seconds: Math.round(buffer.duration) };
     } catch (e) {
       setExporting(`export failed: ${e instanceof Error ? e.message : String(e)}`);
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
       loopRef.current = wasLoop;
       window.setTimeout(() => setExporting(null), 3000);
     }
   }, [ensureSampler, exporting]);
+  const exportMp3Ref = useRef(exportMp3); exportMp3Ref.current = exportMp3;
   const play = useCallback((start = 0, end = Infinity) => {
     {
       const sg = songRef.current;
@@ -689,6 +854,18 @@ export default function TabEditor() {
       c: 0, taken: {}, done: false,
     };
     let nextTime = ctx.currentTime + 0.08;
+    // a metronome click straight to the speakers (never through the rig)
+    const click = (when: number, accent: boolean) => {
+      const o = ctx.createOscillator(); o.type = "square"; o.frequency.value = accent ? 1760 : 1175;
+      const g = ctx.createGain(); g.gain.setValueAtTime(accent ? 0.22 : 0.13, when); g.gain.exponentialRampToValueAtTime(0.0001, when + 0.035);
+      o.connect(g).connect(ctx.destination); o.start(when); o.stop(when + 0.05);
+    };
+    if (countInRef.current) {
+      const first = songRef.current.measures[pos.m];
+      const beats = sigBeats(first.sig); const beatDur = (60 / songRef.current.bpm) * (4 / sigDenom(first.sig));
+      for (let b = 0; b < beats; b++) click(nextTime + b * beatDur, b === 0);
+      nextTime += beats * beatDur;
+    }
     let endAt = Infinity;
     const uiQueue: { t: number; m: number; c: number }[] = [];
 
@@ -826,6 +1003,7 @@ export default function TabEditor() {
         } else {
           for (const a of acts) dispatch(s, a, nextTime);
         }
+        if (clickRef.current && pos.c % (s.measures[pos.m].spb ?? DEFAULT_SPB) === 0) click(nextTime, pos.c === 0);
         uiQueue.push({ t: nextTime, m: pos.m, c: pos.c });
         nextTime += slotDurOf(s, pos.m);
         pos = advancePos(s, pos, startBar, endBar, loopRef.current);
@@ -1000,6 +1178,8 @@ export default function TabEditor() {
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
       nam_models: [...bundledNam.filter((b) => b.instrument !== "bass").map((b) => b.name), ...namLibrary.filter((n) => !bundledNam.some((b) => b.name === n))],
       loop: loopMode,
+      count_in: countIn,
+      click: clickTrack,
     },
     setRig: (patch) => {
       if (patch.tight !== undefined) {
@@ -1040,10 +1220,16 @@ export default function TabEditor() {
         samplerRef.current?.setCabBypass(!patch.cab);
       }
       if (patch.loop !== undefined) setLoopMode(patch.loop);
+      if (patch.count_in !== undefined) setCountIn(patch.count_in);
+      if (patch.click !== undefined) setClickTrack(patch.click);
     },
     switchPmBank,
     setNoteBank,
     selectNamModel,
+    undo: () => undoRef.current(),
+    redo: () => redoRef.current(),
+    flushHistory: () => flushPersistRef.current(),
+    exportMp3: () => exportMp3Ref.current(),
   };
   // the ref above now reflects this render's state — release any tool call
   // waiting on read-after-write consistency
@@ -1346,29 +1532,50 @@ export default function TabEditor() {
               <select
                 value={presetName}
                 onChange={(e) => {
+                  if (e.target.value === "Custom…") { setCustomTuningText([...song.tuning].reverse().join(" ")); return; }
                   const t = TUNING_PRESETS[e.target.value];
-                  if (t) updateSong((s) => ({
-                    ...s,
-                    tuning: [...t],
-                    measures: s.measures.map((m) => ({
-                      ...m,
-                      cols: m.cols.map((col) =>
-                        Array.from({ length: t.length }, (_, si) => col[si] ?? "")
-                      ),
-                    })),
-                  }));
+                  if (t) applyTuning(t);
                 }}
               >
                 {Object.keys(TUNING_PRESETS).map((n) => <option key={n}>{n}</option>)}
                 {presetName === "Custom" && <option>Custom</option>}
+                <option>Custom…</option>
               </select>
             </label>
+            {customTuningText !== null && (
+              <label className="knob">
+                <span>notes, low → high</span>
+                <input
+                  className="tuning-input"
+                  value={customTuningText}
+                  autoFocus
+                  placeholder="E2 A2 D3 G3 B3 E4"
+                  onChange={(e) => setCustomTuningText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitCustomTuning(); if (e.key === "Escape") setCustomTuningText(null); }}
+                  onBlur={commitCustomTuning}
+                />
+              </label>
+            )}
             <button
               className={`btn loop-toggle ${loopMode ? "on" : ""}`}
               title="loop playback"
               onClick={() => setLoopMode((v) => !v)}
             >
               ⟳ loop
+            </button>
+            <button
+              className={`btn loop-toggle ${countIn ? "on" : ""}`}
+              title="count-in: one bar of clicks before the song starts"
+              onClick={() => setCountIn((v) => !v)}
+            >
+              1·2·3·4
+            </button>
+            <button
+              className={`btn loop-toggle ${clickTrack ? "on" : ""}`}
+              title="click track under playback (accented on the downbeat)"
+              onClick={() => setClickTrack((v) => !v)}
+            >
+              click
             </button>
             {playPos === null ? (
               <button className="btn btn-amber" onClick={() => play()}>▶ play</button>
@@ -1389,6 +1596,11 @@ export default function TabEditor() {
             <button onClick={duplicateMeasure} title="duplicate bar (notes included)">⧉</button>
             <button onClick={deleteMeasure} disabled={song.measures.length <= 1} title="delete bar">−</button>
           </div>
+          <div className="btn-group" title="transpose the selected bar(s) by a semitone (alt-click: whole song) · ⌘↑ / ⌘↓">
+            <button onClick={(e) => transposeBy(-1, e.altKey)}>♭</button>
+            <button onClick={(e) => transposeBy(1, e.altKey)}>♯</button>
+          </div>
+          {notice && <span className="notice">{notice}</span>}
           <label className="knob knob-inline">
             <span>bar {sel.m + 1} sig</span>
             <select
@@ -1494,6 +1706,8 @@ export default function TabEditor() {
                 selS={sel.m === m ? sel.s : -1}
                 playC={playPos !== null && playPos[0] === m ? playPos[1] : -1}
                 onSelect={onSelectCell}
+                barSelected={!!barSel && m >= barSel.from && m <= barSel.to}
+                onSelectBar={onSelectBar}
               />
             </Fragment>
           ))}

@@ -8,12 +8,12 @@
 //   __webmcp.list()  /  __webmcp.call("get_song", {})
 
 import {
-  DEFAULT_SIG, DEFAULT_SPB, GRID_VALUES, Measure, Song, TUNING_PRESETS,
-  emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS,
+  DEFAULT_SIG, DEFAULT_SPB, GRID_VALUES, Measure, Song, TUNING_PRESETS, emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS, noteToMidi,
 } from "./model";
 import { importAscii } from "./importAscii";
 import { track } from "./analytics";
 import { shareUrlFor } from "./share";
+import { transposeMeasures } from "./transpose";
 
 // The live surface the tools operate through — reassigned every render so
 // executes always see current state. Mirrors what the UI itself can do.
@@ -40,6 +40,8 @@ export type RigState = {
   nam_model: string | null;
   nam_models: string[];
   loop: boolean;
+  count_in: boolean;
+  click: boolean;
 };
 
 export type WebMcpActions = {
@@ -53,6 +55,10 @@ export type WebMcpActions = {
   rig: RigState;
   setRig: (patch: Partial<Omit<RigState, "nam_model" | "nam_models" | "pm_bank" | "note_bank">>) => void;
   switchPmBank: (v: "bassvi" | "gtechs" | "custom") => Promise<string>;
+  undo: () => boolean;
+  redo: () => boolean;
+  flushHistory: () => void; // close the current undo step so this tool call becomes its own
+  exportMp3: () => Promise<{ ok: boolean; seconds?: number; error?: string }>;
   setNoteBank: (v: "gtechs" | "fsbs") => Promise<string>;
   selectNamModel: (name: string | null) => Promise<string>;
 };
@@ -93,6 +99,7 @@ function findSong(a: WebMcpActions, ref: unknown): Song | null {
 }
 
 function mutateSong(a: WebMcpActions, id: string, fn: (s: Song) => Song) {
+  a.flushHistory(); // each tool call is one undo step, never merged with typing before it
   a.setSongs((prev) =>
     prev.map((s) => (s.id === id ? { ...fn(s), updatedAt: Date.now() } : s))
   );
@@ -233,6 +240,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           artist: { type: "string" },
           bpm: { type: "number" },
           tuning_preset: { type: "string" },
+          tuning: { type: "array", items: { type: "string" }, description: "custom tuning as note names low → high (e.g. [\"B1\",\"E2\",\"A2\",\"D3\",\"G3\",\"B3\",\"E4\"] for a 7-string); 3-9 strings. Notes are kept by string position." },
           sound: { type: "string", enum: ["synth", "guitar", "guitar-di"], description: "Playback instrument: synth, sampled guitar through an amp, or clean DI guitar." },
         },
         additionalProperties: false,
@@ -241,9 +249,15 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         const a = get();
         const s = findSong(a, args.song);
         if (!s) return fail("Song not found.");
-        const tuning = args.tuning_preset !== undefined ? TUNING_PRESETS[String(args.tuning_preset)] : undefined;
+        let tuning = args.tuning_preset !== undefined ? TUNING_PRESETS[String(args.tuning_preset)] : undefined;
         if (args.tuning_preset !== undefined && !tuning) {
           return fail(`Unknown tuning preset. Options: ${Object.keys(TUNING_PRESETS).join(", ")}`);
+        }
+        if (Array.isArray(args.tuning)) {
+          const raw = (args.tuning as unknown[]).map((n) => String(n).trim()).map((n) => n[0]?.toUpperCase() + n.slice(1));
+          if (raw.length < 3 || raw.length > 9 || raw.some((n) => noteToMidi(n) === null)) return fail("tuning must be 3-9 note names like E2 A2 D3 G3 B3 E4.");
+          const midi = raw.map((n) => noteToMidi(n)!);
+          tuning = midi[0] < midi[midi.length - 1] ? [...raw].reverse() : raw; // stored high → low
         }
         mutateSong(a, s.id, (cur) => ({
           ...cur,
@@ -550,9 +564,107 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
       },
     },
     {
+      name: "transpose",
+      description: "Move every fretted note in a bar range up or down by semitones (slides, hammer-ons, palm mutes and pinch targets included; unpitched marks stay). Fails, changing nothing, if any note would leave frets 0-24. Omit the range for the whole song.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...songParam,
+          semitones: { type: "number", description: "positive = up, negative = down" },
+          from_bar: { type: "number", description: "1-based first bar (default 1)" },
+          to_bar: { type: "number", description: "1-based last bar (default: last)" },
+        },
+        required: ["semitones"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        const semis = Math.round(Number(args.semitones));
+        if (!isFinite(semis) || semis === 0 || Math.abs(semis) > 24) return fail("semitones must be a non-zero integer within ±24.");
+        const from = args.from_bar !== undefined ? barIndex(s, args.from_bar) : 0;
+        const to = args.to_bar !== undefined ? barIndex(s, args.to_bar) : s.measures.length - 1;
+        if (from === null || to === null || from > to) return fail(`Bars must be within 1-${s.measures.length} and from_bar ≤ to_bar.`);
+        const res = transposeMeasures(s, semis, from, to);
+        if (!res.ok) return fail(res.error);
+        mutateSong(a, s.id, (cur) => ({ ...cur, measures: res.measures }));
+        const after = { ...s, measures: res.measures };
+        return ok(`Transposed bars ${from + 1}-${to + 1} ${semis > 0 ? "up" : "down"} ${Math.abs(semis)}.`, { ascii: toAscii(after) });
+      },
+    },
+    {
+      name: "undo",
+      description: "Undo the last change to the open song (one step; call again for more). redo: true re-applies the last undone change. Every edit, yours or the human's, is a step.",
+      inputSchema: { type: "object", properties: { redo: { type: "boolean" } }, additionalProperties: false },
+      execute: async (args) => {
+        const a = get();
+        const did = args.redo ? a.redo() : a.undo();
+        if (!did) return fail(args.redo ? "Nothing to redo." : "Nothing to undo.");
+        await nextCommit();
+        const s = findSong(get(), undefined);
+        return ok(args.redo ? "Redone." : "Undone.", s ? { ascii: toAscii(s) } : {});
+      },
+    },
+    {
+      name: "share_song",
+      description: "Get a link that carries the whole song (compressed into the URL, no server, nothing stored). Anyone opening it gets a copy in their own RiffSmith. Also returned by get_song as share_url.",
+      inputSchema: { type: "object", properties: { ...songParam }, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        try { const url = await shareUrlFor(s); return ok(`Share link for "${s.title}" (${url.length} characters).`, { share_url: url }); }
+        catch (e) { return fail(`Could not build the link: ${e instanceof Error ? e.message : String(e)}`); }
+      },
+    },
+    {
+      name: "export_mp3",
+      description: "Export the open song as an MP3 through the current rig. This plays the song once in real time (the human hears it) while recording, then saves the file through the browser's download. Takes as long as the song.",
+      inputSchema: { type: "object", properties: { ...songParam }, additionalProperties: false },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        if (s.id !== a.activeId) a.setActiveId(s.id);
+        const r = await a.exportMp3();
+        return r.ok ? ok(`Exported "${s.title}" (${r.seconds ?? "?"} s of audio) — the browser saved the MP3.`) : fail(r.error ?? "export failed");
+      },
+    },
+    {
+      name: "copy_bars",
+      description: "Copy a range of bars (notes, meters, repeats) and insert the copies after another bar. Use it to build a song from a riff: copy bars 1-4 after bar 4 to play the riff twice.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...songParam,
+          from_bar: { type: "number", description: "1-based first bar of the range" },
+          to_bar: { type: "number", description: "1-based last bar of the range (default: from_bar)" },
+          after_bar: { type: "number", description: "1-based bar to insert after (0 = at the start; default: the end of the song)" },
+        },
+        required: ["from_bar"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        const from = barIndex(s, args.from_bar);
+        const to = args.to_bar !== undefined ? barIndex(s, args.to_bar) : from;
+        if (from === null || to === null || from > to) return fail(`Bars must be within 1-${s.measures.length} and from_bar ≤ to_bar.`);
+        const after = args.after_bar === undefined ? s.measures.length : Math.max(0, Math.min(s.measures.length, Math.floor(Number(args.after_bar))));
+        if (!isFinite(after)) return fail("after_bar must be a number.");
+        if (s.measures.length + (to - from + 1) > 256) return fail("Songs are capped at 256 bars.");
+        const clones = s.measures.slice(from, to + 1).map((m) => ({ ...m, label: undefined, cols: m.cols.map((c) => [...c]) }));
+        mutateSong(a, s.id, (cur) => ({ ...cur, measures: [...cur.measures.slice(0, after), ...clones, ...cur.measures.slice(after)] }));
+        return ok(`Copied bars ${from + 1}-${to + 1} after bar ${after} (song is now ${s.measures.length + clones.length} bars).`);
+      },
+    },
+    {
       name: "get_rig",
       description:
-        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), feedback (amp feedback swell on long held notes), ring (seconds a picked note rings), nam_input (DI level into the capture), room (0-1 amount of the small room around the cab), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
+        "Read the amp/performance rig: tight (0-1 pre-distortion low-cut/mid emphasis), volume (0-2), mute_grip (0-1 palm-mute pressure), picking (alternate/down/up), double_track, engine (new = continuous voices, old = retrigger A/B), cab (synthetic cabinet after a NAM model), pm_bank (palm-mute sample source), note_bank (sustained-note guitar), player_rules (humanization on/off), feedback (amp feedback swell on long held notes), ring (seconds a picked note rings), nam_input (DI level into the capture), count_in, click (metronome), room (0-1 amount of the small room around the cab), nam_model (active Neural Amp Modeler capture name, or null = built-in amp), nam_models (every capture the human has loaded in this browser — switch between them with set_rig.nam_model; adding a new .nam file still requires the human's file picker), loop.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async () => ok("Current rig", { ...get().rig }),
@@ -583,6 +695,8 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           nam_input: { type: "number", minimum: 0.1, maximum: 2, description: "DI level into the NAM capture (1 = raw sample level; default 0.45 ≈ -7 dB, where captures are trained)" },
           room: { type: "number", minimum: 0, maximum: 1, description: "the small room around the cab: 0 = bone dry, 0.1 default (a mic'd cab in a live room), 1 = very roomy" },
           loop: { type: "boolean" },
+          count_in: { type: "boolean", description: "one bar of clicks before the song starts" },
+          click: { type: "boolean", description: "metronome click under playback" },
         },
         additionalProperties: false,
       },
@@ -600,7 +714,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (!["alternate", "down", "up"].includes(String(args.picking))) return fail("picking must be alternate, down, or up.");
           patch.picking = args.picking;
         }
-        for (const k of ["double_track", "cab", "loop", "player_rules", "legato_landings", "feedback"] as const) {
+        for (const k of ["double_track", "cab", "loop", "player_rules", "legato_landings", "feedback", "count_in", "click"] as const) {
           if (args[k] !== undefined) patch[k] = Boolean(args[k]);
         }
         if (args.bass_rig !== undefined) {

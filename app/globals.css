@@ -594,6 +594,10 @@ kbd {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
+.measure.barsel { outline: 2px solid var(--amber-dim); outline-offset: 2px; }
+.measure-num[role="button"] { cursor: pointer; }
+.notice { font-size: 0.72rem; color: var(--amber); margin-left: 8px; white-space: nowrap; }
+.tuning-input { width: 190px; font: inherit; font-size: 0.8rem; background: var(--panel-2); color: var(--bone); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 .measure.repeat-start { border-left: 3px double var(--amber-dim); }
 .measure.repeat-end { border-right: 3px double var(--amber-dim); }
 
