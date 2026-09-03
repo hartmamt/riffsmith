@@ -91,6 +91,7 @@ Every one of those maps onto the tools above without any UI interaction.
 - Share a song as a link: the whole song is compressed into the URL fragment (`#s=…`), so a link carries the tab with no server or account; opening it adds the song locally. `get_song` returns the same `share_url` for agents.
 - Export to MP3: records one real-time pass through the rig you're hearing (captures included) and encodes it in the browser (192 kbps stereo), trimmed and peak-normalised.
 - A bass track: a bass lane under every bar (same slots, its own tuning), played on a second sampler through the bass channel into the same master. `+ bass` adds it, `bass ← guitar` writes a first pass that follows the guitar's lowest notes (palm mutes stay muted, holds stay held), and agents get the same through `update_song { bass }`, `write_notes { track: "bass" }` and `bass_follow_guitar`. ASCII export carries the lane as a `[ bass ]` system and import reattaches it.
+- A drum track: a lane under every bar with crash, hi-hat, snare and kick rows (x hit, X accent, o open hat), played by a synthesized metal kit rendered in the browser (nothing to license). `+ drums` adds it, `drums ← guitar` writes a beat that follows the riff (kicks with the chugs, snare on the backbeat, hats on the 8ths or 16ths, crash on sections), and agents get `update_song { drums }`, `write_notes { track: "drums" }` and `drums_follow_guitar`. ASCII carries the lane as a `[ drums ]` system.
 - Editing basics a tool needs: undo/redo (⌘Z / ⇧⌘Z, or the `undo` tool), whole-bar selection by clicking bar numbers (shift-click to extend) with copy, cut, paste and delete (⌘C/⌘X/⌘V/⌫), riff shifting by a slot (⌥←/⌥→), and transpose by semitones (♭/♯, ⌘↑/⌘↓, alt for the whole song, or the `transpose` tool), which refuses to push a note off the fretboard.
 - Count-in (one bar of clicks) and a click track under playback, both on the transport and in `set_rig`.
 - 7- and 8-string presets (B standard, Drop A, F# standard, Drop E) plus custom tunings typed as note names, also via `update_song { tuning }`.
@@ -141,7 +142,7 @@ Songs and rig settings persist in `localStorage`; custom palm-mute samples and t
 | `lib/schedule.ts` | Pure playback logic: cell grammar to articulation actions, slot timing, accents, repeat/loop position advance. No Web Audio; fully unit-testable in Node. |
 | `lib/sampler.ts` | Sampled guitar engine: per-string voices, articulations, amp chains, double tracking, custom PM banks, NAM routing. |
 | `lib/pmbank.ts` | IndexedDB persistence for custom palm-mute samples and small blobs (the `.nam` model). |
-| `lib/webmcp.ts` | WebMCP bridge: the 21 tool definitions, validation, serialized queue, commit waiting, registration, console shim. |
+| `lib/webmcp.ts` | WebMCP bridge: the 22 tool definitions, validation, serialized queue, commit waiting, registration, console shim. |
 | `lib/demo.ts` | Audition songs. |
 | `components/TabEditor.tsx` | The editor UI, lookahead scheduler, synth voice, rig panel, import/export dialogs, and the `WebMcpActions` surface handed to the bridge. |
 | `public/nam/` | NAM AudioWorklet processor plus the `@opendaw/nam-wasm` glue and binary. |
@@ -165,7 +166,7 @@ Four NAM captures are bundled, all trained by Matt Hartman on his own rigs with 
 
 ## Submission notes (OpenAI WebMCP Challenge)
 
-- **Timeline.** The repository was scaffolded with Create Next App on 2026-08-23 and contained nothing but the scaffold. Everything else, including the entire WebMCP layer (`lib/webmcp.ts`, the 21 tools, the console shim, the bridge pattern) and the tab editor itself, was written between 2026-09-01 and the submission date, after the 2026-08-25 eligibility date. `git log` is the record.
+- **Timeline.** The repository was scaffolded with Create Next App on 2026-08-23 and contained nothing but the scaffold. Everything else, including the entire WebMCP layer (`lib/webmcp.ts`, the 22 tools, the console shim, the bridge pattern) and the tab editor itself, was written between 2026-09-01 and the submission date, after the 2026-08-25 eligibility date. `git log` is the record.
 - **What is bundled.** Every sample bank in `public/samples/` is redistributable under the license in its `NOTICE.txt` (CC BY 4.0, CC0, or the vendor's royalty-free terms) and the modifications made for RiffSmith are documented there. The NAM inference engine is MIT.
 - **Amp captures.** All four Neural Amp Modeler captures the app ships with (RiffSmith Distorted, RiffSmith Clean, RiffSmith Bass Clean, RiffSmith Bass Distorted) were trained by the author on his own rig and are part of the repository under the same MIT license, so the hosted demo and the repository are identical. Anyone can load a different `.nam` file; the built-in amp works with none.
 - **Secrets and services.** None. There is no backend, no API key, and no environment variable; the app is a static Next.js export that runs entirely in the browser.

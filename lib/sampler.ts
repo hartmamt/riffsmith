@@ -265,7 +265,15 @@ export class GuitarSampler {
     if (this.master) return this.master;
     const ctx = this.ctx;
     const master = ctx.createGain();
-    master.connect(this.opts.outputTo ?? ctx.destination);
+    if (this.opts.outputTo) {
+      master.connect(this.opts.outputTo);
+    } else {
+      // a limiter on the way out: guitar, bass lane and drums sum here and a
+      // full band at full volume must not clip the DAC
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -4; lim.knee.value = 2; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.08;
+      master.connect(lim).connect(ctx.destination);
+    }
     const conv = ctx.createConvolver();
     conv.buffer = this.makeRoomIR();
     const send = ctx.createGain();

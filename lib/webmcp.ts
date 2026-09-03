@@ -10,6 +10,7 @@
 import {
   DEFAULT_SIG, DEFAULT_SPB, GRID_VALUES, Measure, Song, TUNING_PRESETS, emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS, noteToMidi, withBassTrack, bassView,
 } from "./model";
+import { DRUM_ROWS, withDrumTrack } from "./drums";
 import { importAscii } from "./importAscii";
 import { track } from "./analytics";
 import { shareUrlFor } from "./share";
@@ -59,6 +60,7 @@ export type WebMcpActions = {
   redo: () => boolean;
   flushHistory: () => void; // close the current undo step so this tool call becomes its own
   bassFollow: (from?: number, to?: number) => void;
+  drumsFollow: (from?: number, to?: number) => void;
   exportMp3: () => Promise<{ ok: boolean; seconds?: number; error?: string }>;
   setNoteBank: (v: "gtechs" | "fsbs") => Promise<string>;
   selectNamModel: (name: string | null) => Promise<string>;
@@ -133,6 +135,7 @@ function songSummary(s: Song) {
     strings: s.tuning.length,
     bass_track: !!s.bassTuning,
     bass_tuning: s.bassTuning ?? null,
+    drum_track: !!s.drums,
     bars: s.measures.length,
     sections: s.measures
       .map((m, i) => (m.label ? { name: m.label, starts_at_bar: i + 1 } : null))
@@ -246,6 +249,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           tuning: { type: "array", items: { type: "string" }, description: "custom tuning as note names low → high (e.g. [\"B1\",\"E2\",\"A2\",\"D3\",\"G3\",\"B3\",\"E4\"] for a 7-string); 3-9 strings. Notes are kept by string position." },
           bass: { type: "boolean", description: "add (true) or remove (false) the bass track: a bass lane under every bar, played through the bass channel. write_notes with track 'bass' fills it; bass_follow_guitar writes a first pass." },
           bass_tuning: { type: "array", items: { type: "string" }, description: "bass tuning as note names low → high (default: Bass E Std, or Bass Drop B for drop-tuned guitars)" },
+          drums: { type: "boolean", description: "add (true) or remove (false) the drum track: a lane under every bar with rows crash · hat · snare · kick. write_notes with track 'drums' fills it (rows 1-4; tokens x hit, X accent, o open hat); drums_follow_guitar writes a first beat." },
           sound: { type: "string", enum: ["synth", "guitar", "guitar-di"], description: "Playback instrument: synth, sampled guitar through an amp, or clean DI guitar." },
         },
         additionalProperties: false,
@@ -275,6 +279,8 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           let cur = cur0;
           if (args.bass === false) cur = withBassTrack(cur, false);
           else if (args.bass === true || bassTuning) cur = withBassTrack(cur, true, bassTuning);
+          if (args.drums === true) cur = withDrumTrack(cur, true);
+          else if (args.drums === false) cur = withDrumTrack(cur, false);
           return {
           ...cur,
           title: args.title !== undefined ? String(args.title) : cur.title,
@@ -496,7 +502,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         type: "object",
         properties: {
           ...songParam,
-          track: { type: "string", enum: ["guitar", "bass"], description: "which lane to write: guitar (default) or the bass track (the song must have one; see update_song bass). Strings then count from the top of the bass tuning." },
+          track: { type: "string", enum: ["guitar", "bass", "drums"], description: "which lane to write: guitar (default), the bass track (strings count from the top of the bass tuning), or drums (string 1 = crash, 2 = hi-hat, 3 = snare, 4 = kick; tokens x hit, X accent, o open hat/choked crash). The song must have that track (update_song bass/drums)." },
           bar: { type: "number", description: "1-based bar number (single-line form)" },
           string: { type: "number", description: "1-based string from the top (single-line form)" },
           cells: { type: "string", description: "Space-separated tokens (single-line form)" },
@@ -526,8 +532,10 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           : [{ bar: args.bar, string: args.string, cells: args.cells }];
         if (!rawWrites.length) return fail("No writes given.");
         const toBass = args.track === "bass";
+        const toDrums = args.track === "drums";
         if (toBass && !s.bassTuning) return fail("This song has no bass track yet — call update_song with bass: true first.");
-        const laneTuning = toBass ? s.bassTuning! : s.tuning;
+        if (toDrums && !s.drums) return fail("This song has no drum track yet — call update_song with drums: true first.");
+        const laneTuning = toBass ? s.bassTuning! : toDrums ? [...DRUM_ROWS] : s.tuning;
 
         // validate everything first — the batch applies atomically or not at all
         const valid = /^(\.|-|\d{1,2}|[/\\hptm^]\d{1,2}|[hpbrtx~=*/\\])$/;
@@ -544,8 +552,8 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
           if (tokens.length > nSlots) {
             return fail(`Bar ${mi + 1} has ${nSlots} slots (${s.measures[mi].sig ?? DEFAULT_SIG}, grid ${s.measures[mi].spb ?? DEFAULT_SPB}/beat) but got ${tokens.length} tokens.`);
           }
-          const bad = tokens.find((t) => !valid.test(t));
-          if (bad) return fail(`Invalid token "${bad}" in bar ${mi + 1}. ${NOTATION}`);
+          const bad = tokens.find((t) => !(toDrums ? /^(\.|-|x|X|o)$/ : valid).test(t));
+          if (bad) return fail(toDrums ? `Invalid drum token "${bad}" in bar ${mi + 1}: use x (hit), X (accent), o (open hat / choked crash), - (rest), . (leave).` : `Invalid token "${bad}" in bar ${mi + 1}. ${NOTATION}`);
           const highFret = tokens.find((t) => {
             const fm = t.match(/(\d{1,2})/);
             return fm && parseInt(fm[1], 10) > 24;
@@ -557,6 +565,12 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         const apply = (cur: Song): Song => {
           const measures = [...cur.measures];
           for (const { mi, si, tokens } of parsed) {
+            if (toDrums) {
+              const drums = measures[mi].cols.map((_, ci) => Array.from({ length: DRUM_ROWS.length }, (_x, k) => measures[mi].drums?.[ci]?.[k] ?? ""));
+              tokens.forEach((t, ci) => { if (ci < drums.length && t !== ".") drums[ci][si] = t === "-" ? "" : t; });
+              measures[mi] = { ...measures[mi], drums };
+              continue;
+            }
             if (toBass) {
               const n = cur.bassTuning?.length ?? laneTuning.length;
               const bass = measures[mi].cols.map((_, ci) => Array.from({ length: n }, (_x, k) => measures[mi].bass?.[ci]?.[k] ?? ""));
@@ -710,6 +724,29 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         const after = findSong(get(), s.id);
         const bv = after ? bassView(after) : null;
         return ok(`Bass follows the guitar in bars ${from + 1}-${to + 1}.`, bv ? { bass_ascii: toAscii(bv) } : {});
+      },
+    },
+    {
+      name: "drums_follow_guitar",
+      description: "Write a metal beat that follows the guitar: kick on every low-string attack (chugs), snare on the backbeats, hi-hats on the 8ths (16ths when the riff is dense), a crash on each section's first slot. Adds the drum track if the song has none. Edit it afterwards with write_notes track 'drums'.",
+      inputSchema: {
+        type: "object",
+        properties: { ...songParam, from_bar: { type: "number", description: "1-based first bar (default 1)" }, to_bar: { type: "number", description: "1-based last bar (default: last)" } },
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        if (s.id !== a.activeId) a.setActiveId(s.id);
+        const from = args.from_bar !== undefined ? barIndex(s, args.from_bar) : 0;
+        const to = args.to_bar !== undefined ? barIndex(s, args.to_bar) : s.measures.length - 1;
+        if (from === null || to === null || from > to) return fail(`Bars must be within 1-${s.measures.length} and from_bar ≤ to_bar.`);
+        a.flushHistory();
+        a.drumsFollow(from, to);
+        await nextCommit();
+        const after = findSong(get(), s.id);
+        return ok(`Drums follow the guitar in bars ${from + 1}-${to + 1}.`, after ? { ascii: toAscii(after) } : {});
       },
     },
     {

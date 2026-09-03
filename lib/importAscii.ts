@@ -14,7 +14,7 @@
 
 import { GRID_VALUES, Measure, Song, newSong, sigBeats } from "./model";
 
-const TAB_LINE = /^\s*([A-Ga-g][#b]?)\s*\|(.*)$/;
+const TAB_LINE = /^\s*([A-Ga-gHhKkSs][#b]?)\s*\|(.*)$/; // H, S, K appear as drum rows (hat, snare, kick)
 // prefixed techniques ("m3", "/7", "h12") parse as single tokens so palm
 // mutes and slide/hammer targets survive a round trip
 const TOKEN = /(\d{1,2}[/\\hpt]\d{1,2})|([/\\hptm^]\d{1,2})|(\d{1,2})|([hpbrstx~/\\=*])/g;
@@ -274,9 +274,10 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
 
   // string count = the most common across systems; others get adapted
   const countTally = new Map<number, number>();
-  for (const sys of systems) countTally.set(sys.labels.length, (countTally.get(sys.labels.length) ?? 0) + 1);
+  const isLane = (sys: System) => !!sys.header && /^(bass|drums)\b/i.test(sys.header.trim());
+  for (const sys of systems) if (!isLane(sys)) countTally.set(sys.labels.length, (countTally.get(sys.labels.length) ?? 0) + 1);
   const strings = [...countTally.entries()].sort((a, b) => b[1] - a[1])[0][0];
-  const refSystem = systems.find((sys) => sys.labels.length === strings)!;
+  const refSystem = systems.find((sys) => !isLane(sys) && sys.labels.length === strings)!;
   const tuning = assignOctaves(refSystem.labels);
 
   const globalStride = detectStride(
@@ -285,9 +286,26 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
   );
 
   const measures: Measure[] = [];
+  const drumMeasures: string[][][] = [];
   const bassMeasures: Measure[] = [];
   let bassLabels: string[] | null = null;
   for (const sys of systems) {
+    // "[ drums ]" systems: rows C/H/S/K, tokens x X o — reattached below
+    if (sys.header && /^drums\b/i.test(sys.header.trim())) {
+      const stride = 2;
+      const rows = sys.rows.map((r) => r.split("|").map((seg) => seg.replace(/^:|:$/g, "").replace(/^x\d{1,2}(?=\s*$)/, "")));
+      const nBars = Math.min(...rows.map((r) => r.length));
+      for (let b = 0; b < nBars; b++) {
+        const segs = rows.map((r) => r[b] ?? "");
+        const width = Math.max(...segs.map((x) => x.replace(/\s+$/, "").length));
+        if (width < 2) continue;
+        const nCols = Math.ceil(width / stride);
+        const cols = Array.from({ length: nCols }, () => Array(4).fill("") as string[]);
+        segs.forEach((seg, r) => { if (r >= 4) return; for (let c = 0; c < nCols; c++) { const ch = seg[c * stride] ?? "-"; if (ch === "x" || ch === "X" || ch === "o") cols[c][r] = ch; } });
+        drumMeasures.push(cols);
+      }
+      continue;
+    }
     // "[ bass ]" systems (our own export) are the bass lane of the bars just parsed
     if (sys.header && /^bass\b/i.test(sys.header.trim())) {
       const bstride = detectStride(sys, globalStride);
@@ -314,6 +332,12 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
     measures.push(...ms);
   }
   if (!measures.length) return { error: "Found tab lines but no readable bars." };
+  let drums = false;
+  if (drumMeasures.length) {
+    drums = true;
+    drumMeasures.forEach((dm, i) => { const gm = measures[i]; if (gm) gm.drums = gm.cols.map((_, ci) => Array.from({ length: 4 }, (_x, r) => dm[ci]?.[r] ?? "")); });
+    for (const gm of measures) if (!gm.drums) gm.drums = gm.cols.map(() => Array(4).fill(""));
+  }
   let bassTuning: string[] | undefined;
   if (bassLabels && bassMeasures.length) {
     bassTuning = assignOctaves(bassLabels);
@@ -350,6 +374,7 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
     bpm: bpmMatch ? parseInt(bpmMatch[1], 10) : 120,
     measures,
     ...(bassTuning ? { bassTuning } : {}),
+    ...(drums ? { drums: true } : {}),
   };
   return { song, systems: systems.length, bars: measures.length, strings, warnings };
 }

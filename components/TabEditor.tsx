@@ -12,6 +12,7 @@ import {
 import { track } from "@/lib/analytics";
 import { transposeMeasures } from "@/lib/transpose";
 import { bassFollowGuitar } from "@/lib/bassFollow";
+import { DRUM_LABELS, DRUM_ROWS, DrumKit, drumsFollowGuitar, withDrumTrack } from "@/lib/drums";
 import { decodeSharedSong, sharedPayloadFromLocation, shareUrlFor } from "@/lib/share";
 import { downloadBlob, encodeMp3, startRecording } from "@/lib/exportMp3";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
@@ -56,7 +57,7 @@ const TECHNIQUES: [string, string][] = [
 ];
 const PREFIX_KEYS = ["/", "\\", "h", "p", "t", "m", "^"];
 
-type Sel = { m: number; c: number; s: number; t?: "b" }; // t: "b" = the bass lane
+type Sel = { m: number; c: number; s: number; t?: "b" | "d" }; // t: "b" = the bass lane, "d" = the drum lane
 
 // One bar's grid, memoized: only the bar whose content, selection, or
 // playhead changed re-renders — sequential edits on large songs stay fast.
@@ -70,17 +71,17 @@ const MeasureGrid = memo(function MeasureGrid({
   selC: number; // selected column in this bar, -1 if selection is elsewhere
   selS: number;
   playC: number; // playhead column in this bar, -1 otherwise
-  onSelect: (m: number, c: number, s: number, track?: "b") => void;
+  onSelect: (m: number, c: number, s: number, track?: "b" | "d") => void;
   barSelected: boolean; // part of a whole-bar selection (clipboard / transpose target)
   onSelectBar: (m: number, extend: boolean) => void;
-  track?: "b"; // the bass lane of this bar (rendered under the guitar's grid)
+  track?: "b" | "d"; // the bass or drum lane of this bar (rendered under the guitar's grid)
 }) {
   const spb = measure.spb ?? DEFAULT_SPB;
   return (
     <div
       className={
         "measure" +
-        (track === "b" ? " bass-lane" : "") +
+        (track === "b" ? " bass-lane" : track === "d" ? " drum-lane" : "") +
         (barSelected ? " barsel" : "") +
         (measure.repeatStart ? " repeat-start" : "") +
         (measure.repeatEnd && measure.repeatEnd > 1 ? " repeat-end" : "")
@@ -92,7 +93,7 @@ const MeasureGrid = memo(function MeasureGrid({
         title="click to select this bar (shift-click to extend): ⌘C/⌘X/⌘V copy, cut, paste · ⌫ delete · ⌘↑/⌘↓ transpose"
         onClick={(e) => onSelectBar(m, e.shiftKey)}
       >
-        {track === "b" ? "bass" : <>
+        {track === "b" ? "bass" : track === "d" ? "drums" : <>
           {measure.repeatStart ? "‖: " : ""}
           {m + 1}{measure.sig ? ` · ${measure.sig}` : ""}
           {measure.repeatEnd && measure.repeatEnd > 1 ? ` :‖ ×${measure.repeatEnd}` : ""}
@@ -104,7 +105,7 @@ const MeasureGrid = memo(function MeasureGrid({
       >
         {Array.from({ length: nStrings }, (_, s) => (
           <div className="row" key={s} style={{ display: "contents" }}>
-            <div className="stringlabel">{tuning[s].replace(/\d/g, "")}</div>
+            <div className="stringlabel">{track === "d" ? tuning[s] : tuning[s].replace(/\d/g, "")}</div>
             {measure.cols.map((col, c) => {
               const v = col[s];
               return (
@@ -508,7 +509,7 @@ export default function TabEditor() {
     );
   }, [activeId]);
 
-  const onSelectCell = useCallback((m: number, c: number, s: number, track?: "b") => {
+  const onSelectCell = useCallback((m: number, c: number, s: number, track?: "b" | "d") => {
     setSel({ m, c, s, t: track });
     setBarSel(null);
   }, []);
@@ -517,7 +518,7 @@ export default function TabEditor() {
     setSel((cur) => ({ m, c: 0, s: cur.s, t: cur.t }));
   }, []);
 
-  const setCell = useCallback((m: number, c: number, st: number, value: string, track?: "b") => {
+  const setCell = useCallback((m: number, c: number, st: number, value: string, track?: "b" | "d") => {
     updateSong((s) => {
       const measures = s.measures.map((meas, mi) => {
         if (mi !== m) return meas;
@@ -526,6 +527,11 @@ export default function TabEditor() {
           const bass = meas.cols.map((_, ci) => Array.from({ length: n }, (_x, si) => meas.bass?.[ci]?.[si] ?? ""));
           bass[c][st] = value;
           return { ...meas, bass };
+        }
+        if (track === "d") {
+          const drums = meas.cols.map((_, ci) => Array.from({ length: DRUM_ROWS.length }, (_x, r) => meas.drums?.[ci]?.[r] ?? ""));
+          drums[c][st] = value;
+          return { ...meas, drums };
         }
         return { ...meas, cols: meas.cols.map((col, ci) => (ci !== c ? col : col.map((v, si) => (si === st ? value : v)))) };
       });
@@ -536,6 +542,13 @@ export default function TabEditor() {
   const toggleBassTrack = useCallback(() => {
     updateSong((s) => withBassTrack(s, !s.bassTuning));
     setSel((cur) => ({ ...cur, t: undefined }));
+  }, [updateSong]);
+  const toggleDrumTrack = useCallback(() => {
+    updateSong((s) => withDrumTrack(s, !s.drums));
+    setSel((cur) => ({ ...cur, t: undefined }));
+  }, [updateSong]);
+  const drumsFollow = useCallback((from?: number, to?: number) => {
+    updateSong((s) => ({ ...withDrumTrack(s, true), measures: drumsFollowGuitar(s.drums ? s : withDrumTrack(s, true), from, to) }));
   }, [updateSong]);
   const followGuitar = useCallback((from?: number, to?: number) => {
     updateSong((s) => {
@@ -643,8 +656,8 @@ export default function TabEditor() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (showImport) return;
       const { m, c, s } = sel;
-      const laneStrings = sel.t === "b" ? (song.bassTuning?.length ?? 4) : nStrings;
-      const cur = (sel.t === "b" ? song.measures[m]?.bass?.[c]?.[s] : song.measures[m]?.cols[c]?.[s]) ?? "";
+      const laneStrings = sel.t === "b" ? (song.bassTuning?.length ?? 4) : sel.t === "d" ? DRUM_ROWS.length : nStrings;
+      const cur = (sel.t === "b" ? song.measures[m]?.bass?.[c]?.[s] : sel.t === "d" ? song.measures[m]?.drums?.[c]?.[s] : song.measures[m]?.cols[c]?.[s]) ?? "";
       const move = (dm: number, dc: number, ds: number) => {
         let nm = m, nc = c + dc;
         const ns = Math.min(laneStrings - 1, Math.max(0, s + ds));
@@ -672,6 +685,12 @@ export default function TabEditor() {
       if (e.altKey && !mod && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { shiftBar(e.key === "ArrowLeft" ? -1 : 1); e.preventDefault(); return; }
       if ((e.key === "Backspace" || e.key === "Delete") && barSel) { deleteBars(); e.preventDefault(); return; }
       if (e.key === "Escape" && barSel) { setBarSel(null); return; }
+      if (sel.t === "d") {
+        // drum lane: x hit · X accent · o open hat / choked crash · space/arrows move
+        if (e.key === "x" || e.key === "X" || e.key === "o") { setCell(m, c, s, e.key, "d"); move(0, 1, 0); e.preventDefault(); return; }
+        if (e.key === "Backspace" || e.key === "Delete") { setCell(m, c, s, "", "d"); e.preventDefault(); return; }
+        if (/^\d$/.test(e.key) || PREFIX_KEYS.includes(e.key) || TECHNIQUES.some(([k]) => k === e.key.toLowerCase())) { e.preventDefault(); return; }
+      }
       if (/^\d$/.test(e.key)) {
         let value: string;
         const prefixed = cur.match(/^([/\\hptm^])(\d{0,2})$/);
@@ -851,6 +870,11 @@ export default function TabEditor() {
   // the bass lane plays on its own sampler (bass bank only), routed into the
   // guitar sampler's master so it shares the room, the level and the export tap
   const bassSamplerRef = useRef<GuitarSampler | null>(null);
+  const drumKitRef = useRef<DrumKit | null>(null);
+  const ensureDrumKit = useCallback((guitar: GuitarSampler): DrumKit => {
+    if (!drumKitRef.current) { drumKitRef.current = new DrumKit(guitar.ctx, guitar.outputNode()); drumKitRef.current.setLevel(levelRef.current); }
+    return drumKitRef.current;
+  }, []);
   const ensureBassSampler = useCallback((guitar: GuitarSampler): GuitarSampler => {
     if (!bassSamplerRef.current) {
       const b = new GuitarSampler(guitar.ctx, { bassOnly: true, outputTo: guitar.outputNode() });
@@ -895,6 +919,7 @@ export default function TabEditor() {
         const b = ensureBassSampler(sampler);
         if (!b.loaded) { b.ready().then(() => playRef.current(start, end)); return; }
       }
+      if (songRef.current.drums) ensureDrumKit(sampler);
     }
     const LOOKAHEAD = 0.13;
     let pos: PlayPosT = {
@@ -1057,6 +1082,10 @@ export default function TabEditor() {
           const bs = bassSamplerRef.current;
           for (const a of columnActions(bv, pos.m, pos.c)) dispatch(bv, a, nextTime, undefined, bs);
         }
+        if (s.drums && drumKitRef.current) {
+          const col = s.measures[pos.m].drums?.[pos.c];
+          if (col) DRUM_ROWS.forEach((row, r) => { if (col[r]) drumKitRef.current!.hit(row, col[r], nextTime); });
+        }
         if (clickRef.current && pos.c % (s.measures[pos.m].spb ?? DEFAULT_SPB) === 0) click(nextTime, pos.c === 0);
         uiQueue.push({ t: nextTime, m: pos.m, c: pos.c });
         nextTime += slotDurOf(s, pos.m);
@@ -1071,7 +1100,7 @@ export default function TabEditor() {
     };
     timerFn();
     playTimer.current = window.setInterval(timerFn, 25);
-  }, [stop, pluck, glideNote, ensureSampler, ensureBassSampler]);
+  }, [stop, pluck, glideNote, ensureSampler, ensureBassSampler, ensureDrumKit]);
   playRef.current = play;
 
   useEffect(() => stop, [stop]);
@@ -1284,6 +1313,7 @@ export default function TabEditor() {
     redo: () => redoRef.current(),
     flushHistory: () => flushPersistRef.current(),
     bassFollow: (from?: number, to?: number) => followGuitar(from, to),
+    drumsFollow: (from?: number, to?: number) => drumsFollow(from, to),
     exportMp3: () => exportMp3Ref.current(),
   };
   // the ref above now reflects this render's state — release any tool call
@@ -1659,6 +1689,10 @@ export default function TabEditor() {
             <button className={song.bassTuning ? "on" : ""} onClick={toggleBassTrack}>{song.bassTuning ? "bass ✓" : "+ bass"}</button>
             <button onClick={() => followGuitar()} title="write a bass line that follows the guitar's lowest notes (whole song; then edit it)">bass ← guitar</button>
           </div>
+          <div className="btn-group" title="a drum lane under every bar (crash · hat · snare · kick): x hit, X accent, o open hat">
+            <button className={song.drums ? "on" : ""} onClick={toggleDrumTrack}>{song.drums ? "drums ✓" : "+ drums"}</button>
+            <button onClick={() => drumsFollow()} title="write a beat that follows the guitar: kicks with the chugs, snare on the backbeat, hats on the 8ths/16ths, crash on sections">drums ← guitar</button>
+          </div>
           {notice && <span className="notice">{notice}</span>}
           <label className="knob knob-inline">
             <span>bar {sel.m + 1} sig</span>
@@ -1781,6 +1815,21 @@ export default function TabEditor() {
                   barSelected={false}
                   onSelectBar={onSelectBar}
                   track="b"
+                />
+              )}
+              {song.drums && (
+                <MeasureGrid
+                  measure={{ ...measure, cols: measure.cols.map((_, ci) => measure.drums?.[ci] ?? Array(DRUM_ROWS.length).fill("")) }}
+                  m={m}
+                  nStrings={DRUM_ROWS.length}
+                  tuning={DRUM_LABELS}
+                  selC={sel.m === m && sel.t === "d" ? sel.c : -1}
+                  selS={sel.s}
+                  playC={playPos !== null && playPos[0] === m ? playPos[1] : -1}
+                  onSelect={onSelectCell}
+                  barSelected={false}
+                  onSelectBar={onSelectBar}
+                  track="d"
                 />
               )}
             </Fragment>

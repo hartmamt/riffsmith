@@ -10,7 +10,7 @@ audio start; the sample banks and the amp capture load on that first play.
 
 1. Open the URL in **ChatGPT's in-app browser** or **Chrome 149+ with
    `chrome://flags/#enable-webmcp-testing`**.
-2. The page registers **21 tools** at module load on `document.modelContext`
+2. The page registers **22 tools** at module load on `document.modelContext`
    (with `navigator.modelContext` and `provideContext` fallbacks). In ChatGPT
    they appear under **Site tools**; in Chrome, DevTools has a WebMCP panel.
    If a client snapshots the page before that first script runs, reload once;
@@ -34,7 +34,7 @@ audio start; the sample banks and the amp capture load on that first play.
 
 Open DevTools and run:
 ```js
-window.__webmcp.list()                                  // the 21 tool names
+window.__webmcp.list()                                  // the 22 tool names
 await window.__webmcp.call("get_song", {})              // read the open song
 await window.__webmcp.call("write_notes", { bar: 1, string: 6, cells: "m0 m0 x 0" })
 await window.__webmcp.call("set_rig", { picking: "down", tight: 0.8, double_track: true })
@@ -42,6 +42,7 @@ await window.__webmcp.call("play", { section: "THEME", loop: true })
 await window.__webmcp.call("transpose", { semitones: 2, from_bar: 1, to_bar: 2 })
 await window.__webmcp.call("undo", {})
 await window.__webmcp.call("bass_follow_guitar", {})      // adds a bass lane that follows the riff
+await window.__webmcp.call("drums_follow_guitar", {})     // and a drum lane that follows it too
 await window.__webmcp.call("share_song", {})              // a link that carries the song
 await window.__webmcp.call("stop", {})
 ```

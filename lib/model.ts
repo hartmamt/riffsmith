@@ -10,6 +10,7 @@ export type Measure = {
   repeatStart?: boolean; // ‖: opens a repeated passage here
   repeatEnd?: number;    // :‖×N — play the passage N times total, then continue
   bass?: string[][];     // the bass lane: cols[col][bassString], same slots as `cols`; present when the song has a bass track
+  drums?: string[][];    // the drum lane: cols[col][row], rows = crash · hat · snare · kick (see lib/drums.ts)
 };
 
 export type Song = {
@@ -20,6 +21,7 @@ export type Song = {
   sound?: "synth" | "guitar" | "guitar-di"; // playback instrument (new songs: guitar; legacy songs without it: synth); guitar-di = clean debug monitoring
   tuning: string[]; // top-to-bottom as displayed (high → low), e.g. ["E4","B3","G3","D3","A2","E2"]
   bassTuning?: string[]; // set when the song has a bass track (high → low), e.g. ["G2","D2","A1","E1"]
+  drums?: boolean;       // the song has a drum track (a lane under every bar)
   measures: Measure[];
   updatedAt: number;
 };
@@ -213,6 +215,25 @@ export function toAscii(song: Song, perLine = 4): string {
         }
       }
       lines.push(...brows, "");
+    }
+    if (song.drums && chunk.some((m) => m.drums?.some((col) => col.some((v) => v)))) {
+      const labels = ["C", "H", "S", "K"];
+      const drows = labels.map((l) => `${l}|`);
+      lines.push(`[ drums · ${chunk[0].sig ?? DEFAULT_SIG} ]`);
+      for (const measure of chunk) {
+        if (measure.repeatStart) for (let s = 0; s < labels.length; s++) drows[s] += ":";
+        for (let c = 0; c < measure.cols.length; c++) {
+          const col = measure.drums?.[c] ?? [];
+          for (let s = 0; s < labels.length; s++) drows[s] += (col[s] || "").padEnd(2, "-");
+        }
+        if (measure.repeatEnd && measure.repeatEnd > 1) {
+          const tag = `x${measure.repeatEnd}`;
+          for (let s = 0; s < labels.length; s++) drows[s] += ":|" + (s === 0 ? tag : " ".repeat(tag.length));
+        } else {
+          for (let s = 0; s < labels.length; s++) drows[s] += "|";
+        }
+      }
+      lines.push(...drows, "");
     }
   }
   return lines.join("\n");
