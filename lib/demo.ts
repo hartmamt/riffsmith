@@ -236,14 +236,15 @@ export function makeBassAuditionSong(): Song {
   };
 }
 
-// "Guitar Showcase": one short piece in Drop B that runs through everything
+// "Guitar Showcase": one short piece in E standard that runs through everything
 // the engine does — let-ring chords with vibrato, a pinch squeal, gallop
 // chugs with grip, a slide into a chug, a legato run, a bend with vibrato,
 // tremolo picking, dead-note chops, and a held final chord (turn `feedback`
 // on in the rig to hear it swell).
 export function makeGuitarShowcaseSong(): Song {
-  const tuning = [...TUNING_PRESETS["Drop B"]];
-  const B1 = 5, F2 = 4, B2 = 3, E3 = 2, G3 = 1, C4 = 0;
+  const tuning = [...TUNING_PRESETS["E Standard"]];
+  // E standard, strings top to bottom: 0 E4 · 1 B3 · 2 G3 · 3 D3 · 4 A2 · 5 E2
+  const B1 = 5, F2 = 4, B2 = 3, E3 = 2, G3 = 1, C4 = 0; // (names kept from the Drop B draft: low E, A, D, G, B, high E)
   const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
     barLines(tuning, lines, sig, spb, label, extra);
   return {
@@ -255,9 +256,9 @@ export function makeGuitarShowcaseSong(): Song {
     sound: "guitar",
     measures: [
       // a big open B5 rings with vibrato, then a pinch squeal answers it
-      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =" }, "4/4", 2, "INTRO · chord, then a pinch squeal"),
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "2 = = = = = = =", [B2]: "2 = = = = = = =" }, "4/4", 2, "INTRO · chord, then a pinch squeal"),
       bl({ [B1]: "^7 ~ = = = = = =" }, "4/4", 2),
-      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "2 = = = = = = =", [B2]: "2 = = = = = = =" }, "4/4", 2),
       bl({ [B1]: "^5 ~ = = = = \\3 =" }, "4/4", 2),
       // gallops, open hits, a slide into the chug on fret 8
       bl({ [B1]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4, "RIFF · gallops, slides, chops", { repeatStart: true }),
@@ -273,10 +274,10 @@ export function makeGuitarShowcaseSong(): Song {
       bl({ [B1]: "0 * * * 3 * * * 5 * * * 6 * * *" }, "4/4", 4, "TREMOLO"),
       bl({ [B1]: "8 * * * 6 * * * 5 * * * 3 * * *" }, "4/4", 4),
       // dead-note chops against the chord, then the final chord held
-      bl({ [B1]: "x x m0 x x m0 3 =", [F2]: ". . . . . . 3 =", [B2]: ". . . . . . 3 =" }, "4/4", 2, "OUTRO · chops, then hold it (try feedback)"),
-      bl({ [B1]: "x x m0 x x 5 = =", [F2]: ". . . . . 5 = =", [B2]: ". . . . . 5 = =" }, "4/4", 2),
-      bl({ [B1]: "0 ~ = = = = = =", [F2]: "0 = = = = = = =", [B2]: "0 = = = = = = =", [E3]: "0 = = = = = = =" }, "4/4", 2),
-      bl({ [B1]: "= = = = = = = =", [F2]: "= = = = = = = =", [B2]: "= = = = = = = =", [E3]: "= = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "x x m0 x x m0 3 =", [F2]: ". . . . . . 5 =", [B2]: ". . . . . . 5 =" }, "4/4", 2, "OUTRO · chops, then hold it (try feedback)"),
+      bl({ [B1]: "x x m0 x x 5 = =", [F2]: ". . . . . 7 = =", [B2]: ". . . . . 7 = =" }, "4/4", 2),
+      bl({ [B1]: "0 ~ = = = = = =", [F2]: "2 = = = = = = =", [B2]: "2 = = = = = = =" }, "4/4", 2),
+      bl({ [B1]: "= = = = = = = =", [F2]: "= = = = = = = =", [B2]: "= = = = = = = =" }, "4/4", 2),
     ],
     updatedAt: Date.now(),
   };

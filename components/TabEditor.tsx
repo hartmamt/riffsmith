@@ -1116,7 +1116,7 @@ export default function TabEditor() {
             </button>
             <button
               className="btn audition-item"
-              title="create the guitar showcase (Drop B): one short piece that runs through chords, pinch squeals, gallop chugs, slides, legato, bends, tremolo and chops"
+              title="create the guitar showcase (E standard): one short piece that runs through chords, pinch squeals, gallop chugs, slides, legato, bends, tremolo and chops"
               onClick={() => {
                 const t = makeGuitarShowcaseSong();
                 setSongs((prev) => {
