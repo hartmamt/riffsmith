@@ -9,9 +9,10 @@ import { importAscii } from "@/lib/importAscii";
 import { WebMcpActions, notifyWebMcpCommit, registerWebMcp } from "@/lib/webmcp";
 import { GuitarSampler } from "@/lib/sampler";
 import {
-  NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf,
-} from "@/lib/schedule";
+  NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf, songDurationSeconds } from "@/lib/schedule";
 import { track } from "@/lib/analytics";
+import { decodeSharedSong, sharedPayloadFromLocation, shareUrlFor } from "@/lib/share";
+import { downloadBlob, encodeMp3, startRecording } from "@/lib/exportMp3";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
@@ -134,6 +135,8 @@ export default function TabEditor() {
   const [sel, setSel] = useState<Sel>({ m: 0, c: 0, s: 0 });
   const [playPos, setPlayPos] = useState<[number, number] | null>(null); // [measure, col]
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState<"idle" | "copied" | "failed">("idle");
+  const [exporting, setExporting] = useState<string | null>(null); // status text while an MP3 export runs
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
@@ -375,6 +378,17 @@ export default function TabEditor() {
     const loaded = loadSongs();
     setSongs(loaded);
     setActiveId(loaded[0].id);
+    // a shared link (#s=…) carries a whole song: add it and open it
+    const payload = sharedPayloadFromLocation();
+    if (payload) {
+      decodeSharedSong(payload).then((song) => {
+        setSongs((prev) => [song, ...(prev ?? loaded)]);
+        setActiveId(song.id);
+        setSel({ m: 0, c: 0, s: 0 });
+        track("shared_song_opened", { bars: song.measures.length });
+        history.replaceState(null, "", location.pathname + location.search);
+      }).catch(() => { /* not a RiffSmith link; leave the hash alone */ });
+    }
   }, []);
 
   useEffect(() => {
@@ -594,6 +608,53 @@ export default function TabEditor() {
   // AudioContext clock, refreshed every 25ms. JS timers only decide when to
   // SCHEDULE — never the audible onset itself. Song state is re-read as the
   // schedule advances, so edits made while a riff loops land on the next pass.
+  // share: the whole song, compressed into the link (no server, nothing stored)
+  const shareLink = useCallback(async () => {
+    const s = songRef.current; if (!s) return;
+    try {
+      const url = await shareUrlFor(s);
+      await navigator.clipboard.writeText(url);
+      setShared("copied"); track("song_shared", { bars: s.measures.length, chars: url.length });
+    } catch { setShared("failed"); }
+    window.setTimeout(() => setShared("idle"), 2500);
+  }, []);
+
+  // export: record one real-time pass through the rig, then encode to MP3
+  const exportMp3 = useCallback(async () => {
+    const s = songRef.current; if (!s || exporting) return;
+    if ((s.sound ?? "synth") === "synth") { setExporting("switch sound to guitar + amp first"); window.setTimeout(() => setExporting(null), 3000); return; }
+    const sampler = ensureSampler();
+    await sampler.ready();
+    const wasLoop = loopRef.current; loopRef.current = false;
+    setExporting("recording… (plays the song once)");
+    const rec = startRecording(sampler);
+    try {
+      playRef.current(0, Infinity);
+      // wait for the scheduler to reach the end (it clears its own timer), then let the tail ring
+      // play() starts its scheduler once the samples are ready: wait for the
+      // timer to appear (up to 20 s), then record for the song's exact length
+      // (repeats expanded) plus a tail for the last notes to ring out
+      await new Promise<void>((resolve) => {
+        const started = Date.now();
+        const poll = () => { if (playTimer.current !== null || Date.now() - started > 20000) resolve(); else window.setTimeout(poll, 50); };
+        poll();
+      });
+      const seconds = songDurationSeconds(s, 0, Infinity);
+      setExporting(`recording… ${Math.ceil(seconds)} s`);
+      await new Promise((r) => window.setTimeout(r, Math.min(15 * 60, seconds + 2.5) * 1000));
+      setExporting("encoding…");
+      const buffer = await rec.stop();
+      const blob = await encodeMp3(buffer, (p) => { if (p.phase === "encoding" && p.seconds !== undefined) setExporting(`encoding… ${Math.round(p.seconds)} s`); });
+      downloadBlob(blob, `${s.title.replace(/[^\w\- ]+/g, "").trim() || "riffsmith"}.mp3`);
+      track("mp3_exported", { bars: s.measures.length, seconds: Math.round(buffer.duration) });
+      setExporting("saved ✓");
+    } catch (e) {
+      setExporting(`export failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      loopRef.current = wasLoop;
+      window.setTimeout(() => setExporting(null), 3000);
+    }
+  }, [ensureSampler, exporting]);
   const play = useCallback((start = 0, end = Infinity) => {
     {
       const sg = songRef.current;
@@ -1376,6 +1437,7 @@ export default function TabEditor() {
             />
           </label>
           <span className="spacer" />
+          {exporting && <span className="export-status" data-export-status={exporting}>{exporting}</span>}
           <div className="ascii-wrap">
             <button className="btn" onClick={() => setAsciiOpen((v) => !v)}>ascii ▾</button>
             {asciiOpen && (
@@ -1387,6 +1449,12 @@ export default function TabEditor() {
                   {copied ? "copied ✓" : "copy tab"}
                 </button>
                 <button onClick={() => { downloadAscii(); setAsciiOpen(false); }}>download .txt</button>
+                <button onClick={() => { void shareLink(); setAsciiOpen(false); }} title="copy a link that carries this whole song — no account, no server">
+                  {shared === "copied" ? "link copied ✓" : shared === "failed" ? "couldn't copy" : "share link"}
+                </button>
+                <button onClick={() => { void exportMp3(); setAsciiOpen(false); }} disabled={!!exporting} title="records one real-time pass through your rig and saves it as an MP3">
+                  {exporting ?? "export mp3"}
+                </button>
               </div>
             )}
           </div>

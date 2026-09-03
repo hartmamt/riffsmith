@@ -293,3 +293,16 @@ export function advancePos(
   if (m > last) return { m, c: 0, taken, done: true };
   return { m, c, taken, done: false };
 }
+
+/** Seconds one non-looping pass takes from bar `start` to `end`, repeats expanded. */
+export function songDurationSeconds(song: Song, start = 0, end = Infinity): number {
+  if (!song.measures.length) return 0;
+  const last = Math.min(end, song.measures.length - 1);
+  let pos: PlayPos = { m: Math.min(start, last), c: 0, taken: {}, done: false };
+  let t = 0;
+  for (let guard = 0; guard < 200000 && !pos.done; guard++) {
+    t += slotDurOf(song, pos.m);
+    pos = advancePos(song, pos, start, end, false);
+  }
+  return t;
+}

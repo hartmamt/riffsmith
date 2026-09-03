@@ -3,8 +3,7 @@ import { Measure, Song, TUNING_PRESETS, emptyMeasure, toAscii } from "./model";
 import { importAscii } from "./importAscii";
 import {
   PlayPos, accentAt, advancePos, columnActions, fretOf, holdAfter,
-  slotDurOf, vibratoAfter,
-} from "./schedule";
+  slotDurOf, vibratoAfter, songDurationSeconds } from "./schedule";
 
 const TUNING = TUNING_PRESETS["Drop B"]; // C#4 G#3 E3 B2 F#2 B1 — B1 = midi 35
 const LOW = TUNING.length - 1;
@@ -315,5 +314,17 @@ describe("pinch harmonics (^fret)", () => {
     if ("error" in res) return;
     expect(res.song.measures[0].cols[1][5]).toBe("^7");
     expect(res.song.measures[0].cols[0][5]).toBe("0");
+  });
+});
+
+describe("songDurationSeconds", () => {
+  it("expands repeats and honours per-bar meters", () => {
+    // 8ths at 120 BPM: a 4/4 bar is 2 s, a 3/4 bar is 1.5 s
+    const s = song([bar("0 0 0 0 0 0 0 0"), bar("0 0 0 0 0 0 0 0")], 120);
+    expect(songDurationSeconds(s)).toBeCloseTo(4, 5);
+    s.measures[0].repeatStart = true; s.measures[1].repeatEnd = 2;
+    expect(songDurationSeconds(s)).toBeCloseTo(8, 5);
+    const mixed = song([bar("0 0 0 0 0 0 0 0"), bar("0 0 0 0 0 0", "3/4")], 120);
+    expect(songDurationSeconds(mixed)).toBeCloseTo(3.5, 5);
   });
 });

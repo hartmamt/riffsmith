@@ -88,6 +88,8 @@ Every one of those maps onto the tools above without any UI interaction.
 - Rig side panel with persisted settings (tight, volume, mute grip, picking, double tracking, engine, cab, palm-mute bank, note bank, player rules, legato landings, ring time, feedback, NAM input, room, bass rig (clean or distorted capture / built-in amp / guitar rig), loop).
 - Custom palm-mute sample bank: drop in your own DI `.wav` hits named `<note><octave>_v<velocity>_rr<n>.wav`; they persist in IndexedDB and replace the built-in bank where they cover the pitch.
 - `scripts/mine_chugs.py`: mine palm-mute hits out of full DI stems into bank-convention files, reporting every candidate and why rejects were rejected.
+- Share a song as a link: the whole song is compressed into the URL fragment (`#s=…`), so a link carries the tab with no server or account; opening it adds the song locally. `get_song` returns the same `share_url` for agents.
+- Export to MP3: records one real-time pass through the rig you're hearing (captures included) and encodes it in the browser (192 kbps stereo), trimmed and peak-normalised.
 - Audition songs (technique test, chug A/B, tremolo) for comparing DI, built-in amp, NAM, and palm-mute banks while looping.
 - New and imported songs play through the sampled guitar and the rig by default; a plain synth voice is still available per song for sketching before samples load.
 

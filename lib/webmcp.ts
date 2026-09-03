@@ -13,6 +13,7 @@ import {
 } from "./model";
 import { importAscii } from "./importAscii";
 import { track } from "./analytics";
+import { shareUrlFor } from "./share";
 
 // The live surface the tools operate through — reassigned every render so
 // executes always see current state. Mirrors what the UI itself can do.
@@ -151,7 +152,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
     {
       name: "get_song",
       description:
-        "Read a song in full: metadata, section list, per-bar structure (time signature, grid resolution, repeats), and the complete ASCII tab. Strings are numbered 1 (top, highest pitch) to N (bottom, lowest). " + NOTATION,
+        "Read a song in full: metadata, section list, per-bar structure (time signature, grid resolution, repeats), and the complete ASCII tab, plus share_url: a link that carries the whole song (open it anywhere to get a copy). Strings are numbered 1 (top, highest pitch) to N (bottom, lowest). " + NOTATION,
       inputSchema: { type: "object", properties: { ...songParam }, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: async (args) => {
@@ -170,6 +171,7 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
             repeat_end: m.repeatEnd,
           })),
           ascii: toAscii(s),
+          share_url: await shareUrlFor(s).catch(() => null), // the whole song, encoded in the link (no server)
         });
       },
     },

@@ -59,6 +59,13 @@ real bass through the bundled **RiffSmith Bass Clean** capture automatically
 (`set_rig { bass_model: "RiffSmith Bass Distorted" }` for the driven one; `bass_rig` picks
 the capture, the built-in bass amp, or the guitar rig).
 
+## Sharing and exporting
+
+The **ascii ▾** menu has **share link** (the whole song compressed into the URL,
+no server; open it anywhere to get a copy) and **export mp3** (records one
+real-time pass through the rig and saves an MP3). `get_song` returns the same
+`share_url` to agents.
+
 ## Source
 
 Repo: https://github.com/hartmamt/riffsmith — `npm install && npm run dev`,

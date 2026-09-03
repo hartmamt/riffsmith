@@ -707,6 +707,7 @@ kbd {
 .nam-error { color: var(--hot); font-size: 0.68rem; max-width: 180px; }
 
 .loop-toggle { color: var(--bone-dim); }
+.export-status { font-size: 0.72rem; color: var(--amber); letter-spacing: 0.04em; margin-right: 10px; white-space: nowrap; }
 
 .loop-toggle.on {
   color: var(--amber);

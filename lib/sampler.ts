@@ -54,7 +54,7 @@ type StringVoice = {
 };
 
 export class GuitarSampler {
-  private ctx: AudioContext;
+  readonly ctx: AudioContext;
   private buffers = new Map<string, AudioBuffer>();
   private loading: Promise<void> | null = null;
   private ampIn: GainNode | null = null;
@@ -266,6 +266,13 @@ export class GuitarSampler {
     this.master = master;
     this.roomSend = send;
     return master;
+  }
+
+  /** A stream of everything the amps output (for recording/export). */
+  tapOutput(): MediaStreamAudioDestinationNode {
+    const dest = this.ctx.createMediaStreamDestination();
+    this.outNode().connect(dest);
+    return dest;
   }
 
   setRoom(x: number) {
