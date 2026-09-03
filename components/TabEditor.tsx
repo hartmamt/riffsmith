@@ -92,9 +92,11 @@ const MeasureGrid = memo(function MeasureGrid({
         title="click to select this bar (shift-click to extend): ⌘C/⌘X/⌘V copy, cut, paste · ⌫ delete · ⌘↑/⌘↓ transpose"
         onClick={(e) => onSelectBar(m, e.shiftKey)}
       >
-        {measure.repeatStart ? "‖: " : ""}
-        {m + 1}{measure.sig ? ` · ${measure.sig}` : ""}
-        {measure.repeatEnd && measure.repeatEnd > 1 ? ` :‖ ×${measure.repeatEnd}` : ""}
+        {track === "b" ? "bass" : <>
+          {measure.repeatStart ? "‖: " : ""}
+          {m + 1}{measure.sig ? ` · ${measure.sig}` : ""}
+          {measure.repeatEnd && measure.repeatEnd > 1 ? ` :‖ ×${measure.repeatEnd}` : ""}
+        </>}
       </div>
       <div
         className="grid"
