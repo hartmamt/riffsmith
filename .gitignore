@@ -54,3 +54,6 @@ public/nam/models/5150-stealth-red.nam
 
 # rust build output
 string-engine/target/
+
+# analytics template (real keys live in .env.local, which stays ignored)
+!.env.example

@@ -11,6 +11,7 @@ import { GuitarSampler } from "@/lib/sampler";
 import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf,
 } from "@/lib/schedule";
+import { track } from "@/lib/analytics";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
 import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, savePmSamples } from "@/lib/pmbank";
 
@@ -568,6 +569,10 @@ export default function TabEditor() {
   // SCHEDULE — never the audible onset itself. Song state is re-read as the
   // schedule advances, so edits made while a riff loops land on the next pass.
   const play = useCallback((start = 0, end = Infinity) => {
+    {
+      const sg = songRef.current;
+      if (sg) track("song_played", { sound: sg.sound ?? "synth", bars: sg.measures.length, tuning: sg.tuning.join(" "), engine: hybridRef.current ? "hybrid" : "voices", range: end === Infinity ? "song" : "section" });
+    }
     stop();
     if (!songRef.current) return;
     if (!audioRef.current) audioRef.current = new AudioContext({ sampleRate: 48000 }); // NAM models train at 48k
@@ -847,6 +852,7 @@ export default function TabEditor() {
   // (or back to the built-in amp). Adding a new file still needs the picker.
   const selectNamModel = useCallback(async (name: string | null): Promise<string> => {
     localStorage.setItem("gs.namChoice", "1");
+    track("nam_model_selected", { model: name });
     if (name === null) {
       samplerRef.current?.bypassNam();
       setNamStatus(null);
@@ -981,6 +987,7 @@ export default function TabEditor() {
     if ("error" in res) { setImportError(res.error); return; }
     setSongs((prev) => (prev ? [res.song, ...prev] : [res.song]));
     setActiveId(res.song.id);
+    track("ascii_imported", { bars: res.bars, systems: res.systems, strings: res.strings, warnings: res.warnings.length });
     setSel({ m: 0, c: 0, s: 0 });
     setImportText("");
     setImportError(null);
@@ -1051,6 +1058,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               technique test
@@ -1067,6 +1075,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               chug audition
@@ -1083,6 +1092,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               tremolo audition
@@ -1099,6 +1109,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               guitar showcase
@@ -1115,6 +1126,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
                 setTight(0); localStorage.setItem("gs.tight", "0");
                 setRing(3.0);
                 // the experimental string model damps notes on its own, so a clean
@@ -1137,6 +1149,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               bass showcase
@@ -1153,6 +1166,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               string model audition
@@ -1169,6 +1183,7 @@ export default function TabEditor() {
                 setActiveId(t.id);
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
               }}
             >
               bass audition

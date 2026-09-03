@@ -12,6 +12,7 @@ import {
   emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS,
 } from "./model";
 import { importAscii } from "./importAscii";
+import { track } from "./analytics";
 
 // The live surface the tools operate through — reassigned every render so
 // executes always see current state. Mirrors what the UI itself can do.
@@ -711,15 +712,22 @@ async function appActions(): Promise<() => WebMcpActions> {
   return actionsHolder;
 }
 
+// which surface a call arrived through (the console shim flips this for the
+// synchronous entry of its call; native modelContext calls leave it alone)
+let callSource: "native" | "shim" = "native";
+
 function serialized(t: ToolDef): ToolDef {
   const mutates = !t.annotations?.readOnlyHint;
   return {
     ...t,
     execute: (args) => {
+      const source = callSource;
+      const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
       const run = queue.then(async () => {
+        let result: unknown;
         try {
           await appActions();
-          const result = await t.execute(args);
+          result = await t.execute(args);
           // successful mutations wait for React to commit before the next
           // tool runs, so create → read chains see the new state
           if (mutates && (result as { ok?: boolean } | null)?.ok) {
@@ -727,7 +735,11 @@ function serialized(t: ToolDef): ToolDef {
           }
           return result;
         } catch (err) {
-          return fail(String(err instanceof Error ? err.message : err));
+          result = fail(String(err instanceof Error ? err.message : err));
+          return result;
+        } finally {
+          const ok = (result as { ok?: boolean } | null)?.ok === true;
+          track("webmcp_tool_called", { tool: t.name, ok, ms: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - t0), source });
         }
       });
       queue = run.catch(() => undefined);
@@ -752,7 +764,8 @@ function registerTools(): string {
     call: (name: string, args: Record<string, unknown> = {}) => {
       const t = tools.find((x) => x.name === name);
       if (!t) return Promise.resolve(fail(`No such tool: ${name}`));
-      return t.execute(args);
+      callSource = "shim";
+      try { return t.execute(args); } finally { callSource = "native"; }
     },
   };
 
