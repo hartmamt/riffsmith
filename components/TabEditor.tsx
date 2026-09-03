@@ -1493,6 +1493,20 @@ export default function TabEditor() {
             </button>
             <button
               className="btn audition-item"
+              title="the built-in demo song as a full band: In the Hall of the Mountain King with a bass lane and a drum lane following the guitar"
+              onClick={() => {
+                const t = makeStarterSong();
+                setSongs((prev) => [t, ...(prev ?? [])]);
+                setActiveId(t.id);
+                setSel({ m: 0, c: 0, s: 0 });
+                ensureSampler().ready();
+                track("audition_song_opened", { title: t.title });
+              }}
+            >
+              mountain king · full band
+            </button>
+            <button
+              className="btn audition-item"
               title="create the guitar showcase (E standard): one short piece that runs through chords, pinch squeals, gallop chugs, slides, legato, bends, tremolo and chops"
               onClick={() => {
                 const t = makeGuitarShowcaseSong();

@@ -97,6 +97,7 @@ Every one of those maps onto the tools above without any UI interaction.
 - Editing basics a tool needs: undo/redo (⌘Z / ⇧⌘Z, or the `undo` tool), whole-bar selection by clicking bar numbers (shift-click to extend) with copy, cut, paste and delete (⌘C/⌘X/⌘V/⌫), riff shifting by a slot (⌥←/⌥→), and transpose by semitones (♭/♯, ⌘↑/⌘↓, alt for the whole song, or the `transpose` tool), which refuses to push a note off the fretboard.
 - Count-in (one bar of clicks) and a click track under playback, both on the transport and in `set_rig`.
 - 7- and 8-string presets (B standard, Drop A, F# standard, Drop E) plus custom tunings typed as note names, also via `update_song { tuning }`.
+- The built-in demo (In the Hall of the Mountain King) opens as a full band: guitar, a bass lane and a drum lane. `audition songs → mountain king · full band` recreates it.
 - Audition songs (technique test, chug A/B, tremolo) for comparing DI, built-in amp, NAM, and palm-mute banks while looping.
 - New and imported songs play through the sampled guitar and the rig by default; a plain synth voice is still available per song for sketching before samples load.
 

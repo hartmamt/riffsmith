@@ -1,7 +1,9 @@
 // "Technique Test" audition song: isolated examples of each articulation for
 // A/B-ing the voice engine through clean DI, the built-in amp, and NAM.
 
-import { Song, TUNING_PRESETS, emptyMeasure } from "./model";
+import { Song, TUNING_PRESETS, emptyMeasure, withBassTrack } from "./model";
+import { bassFollowGuitar } from "./bassFollow";
+import { drumsFollowGuitar, withDrumTrack } from "./drums";
 
 function bar(
   tuning: string[], cells: string, sig: string, spb: number, label?: string
@@ -93,6 +95,14 @@ function barLines(
   return { ...m, ...extra };
 }
 
+/** Guitar riff → the same song with a bass lane and a drum lane following it. */
+export function fullBand(song: Song): Song {
+  const withBass = withBassTrack(song, true);
+  const bassed = { ...withBass, measures: bassFollowGuitar(withBass, withBass.bassTuning!) };
+  const withDrums = withDrumTrack(bassed, true);
+  return { ...withDrums, measures: drumsFollowGuitar(withDrums) };
+}
+
 export function makeStarterSong(): Song {
   const tuning = [...TUNING_PRESETS["E Standard"]];
   // E standard strings, top to bottom: 0 E4 · 1 B3 · 2 G3 · 3 D3 · 4 A2 · 5 E2
@@ -100,7 +110,7 @@ export function makeStarterSong(): Song {
   // E5: open low E, A and D at the 2nd fret
   const chord = (cells: string) => ({ [B1]: cells, [F2]: cells.replace(/0/g, "2"), [B2]: cells.replace(/0/g, "2") });
   const trem = "0 * * 2 * * 3 * * 5 * * 7 * * 3 * * 7 * * * * *";
-  return {
+  const song: Song = {
     id: Math.random().toString(36).slice(2, 10),
     title: "In the Hall of the Mountain King",
     artist: "Edvard Grieg",
@@ -129,6 +139,7 @@ export function makeStarterSong(): Song {
     ],
     updatedAt: Date.now(),
   };
+  return fullBand(song);
 }
 
 export function makeTechniqueTestSong(): Song {
