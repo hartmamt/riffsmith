@@ -1,6 +1,9 @@
 /* RiffSmith — tube-amp stage aesthetic */
 
 :root {
+  /* the page is dark: tell the browser so native popups (select option lists,
+     scrollbars, date pickers) render dark too instead of light text on white */
+  color-scheme: dark;
   --ink: #0c0a08;
   --panel: #14110d;
   --panel-2: #1a1611;
@@ -18,6 +21,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { height: 100%; }
+select option { background: #1a1613; color: #e8dcc8; }
+select option:checked { background: #2a231a; color: #ffb547; }
 
 body {
   background:
