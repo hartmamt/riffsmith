@@ -2,7 +2,7 @@
 
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEFAULT_SIG, DEFAULT_SPB, GRIDS, Measure as MeasureT, SIGS, Song, TUNING_PRESETS, emptyMeasure, isFret, midiToFreq, newSong, noteToMidi, reshapeMeasure, toAscii, sigBeats, sigDenom,
+  DEFAULT_SIG, DEFAULT_SPB, GRIDS, Measure as MeasureT, SIGS, Song, TUNING_PRESETS, emptyMeasure, isFret, midiToFreq, newSong, noteToMidi, reshapeMeasure, toAscii, sigBeats, sigDenom, bassView, withBassTrack, defaultBassTuning,
 } from "@/lib/model";
 import { importAscii } from "@/lib/importAscii";
 import { WebMcpActions, notifyWebMcpCommit, registerWebMcp } from "@/lib/webmcp";
@@ -11,6 +11,7 @@ import {
   NoteAction, PlayPos as PlayPosT, advancePos, columnActions, slotDurOf, songDurationSeconds } from "@/lib/schedule";
 import { track } from "@/lib/analytics";
 import { transposeMeasures } from "@/lib/transpose";
+import { bassFollowGuitar } from "@/lib/bassFollow";
 import { decodeSharedSong, sharedPayloadFromLocation, shareUrlFor } from "@/lib/share";
 import { downloadBlob, encodeMp3, startRecording } from "@/lib/exportMp3";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
@@ -55,12 +56,12 @@ const TECHNIQUES: [string, string][] = [
 ];
 const PREFIX_KEYS = ["/", "\\", "h", "p", "t", "m", "^"];
 
-type Sel = { m: number; c: number; s: number };
+type Sel = { m: number; c: number; s: number; t?: "b" }; // t: "b" = the bass lane
 
 // One bar's grid, memoized: only the bar whose content, selection, or
 // playhead changed re-renders — sequential edits on large songs stay fast.
 const MeasureGrid = memo(function MeasureGrid({
-  measure, m, nStrings, tuning, selC, selS, playC, onSelect, barSelected, onSelectBar,
+  measure, m, nStrings, tuning, selC, selS, playC, onSelect, barSelected, onSelectBar, track,
 }: {
   measure: MeasureT;
   m: number;
@@ -69,15 +70,17 @@ const MeasureGrid = memo(function MeasureGrid({
   selC: number; // selected column in this bar, -1 if selection is elsewhere
   selS: number;
   playC: number; // playhead column in this bar, -1 otherwise
-  onSelect: (m: number, c: number, s: number) => void;
+  onSelect: (m: number, c: number, s: number, track?: "b") => void;
   barSelected: boolean; // part of a whole-bar selection (clipboard / transpose target)
   onSelectBar: (m: number, extend: boolean) => void;
+  track?: "b"; // the bass lane of this bar (rendered under the guitar's grid)
 }) {
   const spb = measure.spb ?? DEFAULT_SPB;
   return (
     <div
       className={
         "measure" +
+        (track === "b" ? " bass-lane" : "") +
         (barSelected ? " barsel" : "") +
         (measure.repeatStart ? " repeat-start" : "") +
         (measure.repeatEnd && measure.repeatEnd > 1 ? " repeat-end" : "")
@@ -112,7 +115,7 @@ const MeasureGrid = memo(function MeasureGrid({
                     (c % spb === 0 ? " beat" : "") +
                     (v ? " filled" : "")
                   }
-                  onClick={() => onSelect(m, c, s)}
+                  onClick={() => onSelect(m, c, s, track)}
                   tabIndex={-1}
                 >
                   {v || "—"}
@@ -265,33 +268,40 @@ export default function TabEditor() {
   const [bassModel, setBassModel] = useState<string>(() =>
     typeof window === "undefined" ? "" : (localStorage.getItem("gs.bassModel") ?? ""));
   const bassModelRef = useRef("");
-  const bassCaptureLoaded = useRef<string | null>(null);   // name currently in the sampler
-  const bassCaptureLoading = useRef<Promise<void> | null>(null);
-  // load the chosen bass capture into the sampler (first listed if none chosen)
+  const bassCaptureLoaded = useRef(new WeakMap<GuitarSampler, string>());   // capture name per sampler instance
+  const bassCaptureLoading = useRef(new WeakMap<GuitarSampler, Promise<void>>());
+  // load the chosen bass capture into a sampler (first listed if none chosen)
   const ensureBassCapture = useCallback((s: GuitarSampler) => {
     const want = bassModelRef.current;
-    if (bassCaptureLoaded.current && (want === "" || bassCaptureLoaded.current === want)) return Promise.resolve();
-    if (!bassCaptureLoading.current) bassCaptureLoading.current = (async () => {
+    const have = bassCaptureLoaded.current.get(s);
+    if (have && (want === "" || have === want)) return Promise.resolve();
+    const pending = bassCaptureLoading.current.get(s);
+    if (pending) return pending;
+    const job = (async () => {
       const basses = (await fetchBundledNam()).filter((x) => x.instrument === "bass");
       const b = basses.find((x) => x.name === want) ?? basses[0];
       if (!b) return;
       const json = await fetch(b.url).then((r) => r.text());
       const r = await s.loadBassCapture(json, b.name, b.trim_db ?? 0);
-      if (r.ok) bassCaptureLoaded.current = b.name;
+      if (r.ok) bassCaptureLoaded.current.set(s, b.name);
       else console.warn("bass capture unavailable, using the bass amp:", r.error);
-    })().finally(() => { bassCaptureLoading.current = null; });
-    return bassCaptureLoading.current;
+    })().finally(() => { bassCaptureLoading.current.delete(s); });
+    bassCaptureLoading.current.set(s, job);
+    return job;
   }, []);
   useEffect(() => {
     bassModelRef.current = bassModel;
     localStorage.setItem("gs.bassModel", bassModel);
     if (bassRigRef.current === "capture" && samplerRef.current) void ensureBassCapture(samplerRef.current);
+    if (bassRigRef.current === "capture" && bassSamplerRef.current) void ensureBassCapture(bassSamplerRef.current);
   }, [bassModel, ensureBassCapture]);
   useEffect(() => {
     bassRigRef.current = bassRig;
     localStorage.setItem("gs.bassRig", bassRig);
     if (samplerRef.current) samplerRef.current.bassRig = bassRig;
+    if (bassSamplerRef.current) bassSamplerRef.current.bassRig = bassRig;
     if (bassRig === "capture" && samplerRef.current) void ensureBassCapture(samplerRef.current);
+    if (bassRig === "capture" && bassSamplerRef.current) void ensureBassCapture(bassSamplerRef.current);
   }, [bassRig, ensureBassCapture]);
   useEffect(() => {
     landingsRef.current = landings;
@@ -496,26 +506,40 @@ export default function TabEditor() {
     );
   }, [activeId]);
 
-  const onSelectCell = useCallback((m: number, c: number, s: number) => {
-    setSel({ m, c, s });
+  const onSelectCell = useCallback((m: number, c: number, s: number, track?: "b") => {
+    setSel({ m, c, s, t: track });
     setBarSel(null);
   }, []);
   const onSelectBar = useCallback((m: number, extend: boolean) => {
     setBarSel((cur) => extend && cur ? { from: Math.min(cur.from, m), to: Math.max(cur.to, m) } : { from: m, to: m });
-    setSel((cur) => ({ m, c: 0, s: cur.s }));
+    setSel((cur) => ({ m, c: 0, s: cur.s, t: cur.t }));
   }, []);
 
-  const setCell = useCallback((m: number, c: number, st: number, value: string) => {
+  const setCell = useCallback((m: number, c: number, st: number, value: string, track?: "b") => {
     updateSong((s) => {
-      const measures = s.measures.map((meas, mi) =>
-        mi !== m ? meas : {
-          ...meas,
-          cols: meas.cols.map((col, ci) =>
-            ci !== c ? col : col.map((v, si) => (si === st ? value : v))
-          ),
+      const measures = s.measures.map((meas, mi) => {
+        if (mi !== m) return meas;
+        if (track === "b") {
+          const n = s.bassTuning?.length ?? 4;
+          const bass = meas.cols.map((_, ci) => Array.from({ length: n }, (_x, si) => meas.bass?.[ci]?.[si] ?? ""));
+          bass[c][st] = value;
+          return { ...meas, bass };
         }
-      );
+        return { ...meas, cols: meas.cols.map((col, ci) => (ci !== c ? col : col.map((v, si) => (si === st ? value : v)))) };
+      });
       return { ...s, measures };
+    });
+  }, [updateSong]);
+  // bass track on/off, and a bass line that follows the guitar
+  const toggleBassTrack = useCallback(() => {
+    updateSong((s) => withBassTrack(s, !s.bassTuning));
+    setSel((cur) => ({ ...cur, t: undefined }));
+  }, [updateSong]);
+  const followGuitar = useCallback((from?: number, to?: number) => {
+    updateSong((s) => {
+      const bt = s.bassTuning ?? defaultBassTuning(s.tuning);
+      const withTrack = s.bassTuning ? s : withBassTrack(s, true, bt);
+      return { ...withTrack, measures: bassFollowGuitar(withTrack, bt, from, to) };
     });
   }, [updateSong]);
 
@@ -617,10 +641,11 @@ export default function TabEditor() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (showImport) return;
       const { m, c, s } = sel;
-      const cur = song.measures[m]?.cols[c]?.[s] ?? "";
+      const laneStrings = sel.t === "b" ? (song.bassTuning?.length ?? 4) : nStrings;
+      const cur = (sel.t === "b" ? song.measures[m]?.bass?.[c]?.[s] : song.measures[m]?.cols[c]?.[s]) ?? "";
       const move = (dm: number, dc: number, ds: number) => {
         let nm = m, nc = c + dc;
-        const ns = Math.min(nStrings - 1, Math.max(0, s + ds));
+        const ns = Math.min(laneStrings - 1, Math.max(0, s + ds));
         if (nc >= song.measures[nm].cols.length) {
           if (m < song.measures.length - 1) { nm = m + 1; nc = 0; }
           else nc = song.measures[nm].cols.length - 1;
@@ -631,7 +656,7 @@ export default function TabEditor() {
         }
         nm = Math.min(song.measures.length - 1, Math.max(0, nm + dm));
         nc = Math.min(song.measures[nm].cols.length - 1, nc);
-        setSel({ m: nm, c: nc, s: ns });
+        setSel({ m: nm, c: nc, s: ns, t: sel.t });
       };
 
       const mod = e.metaKey || e.ctrlKey;
@@ -659,20 +684,20 @@ export default function TabEditor() {
           const appended = cur + e.key;
           value = isFret(cur) && parseInt(appended, 10) <= 24 ? appended : e.key;
         }
-        setCell(m, c, s, value);
+        setCell(m, c, s, value, sel.t);
         e.preventDefault();
         return;
       }
       if (PREFIX_KEYS.includes(e.key) && !e.metaKey && !e.ctrlKey) {
         // technique prefix: "/" "\" slide, "h" hammer, "p" pull, "t" tap —
         // then type the fret; the technique rides on that note's slot
-        setCell(m, c, s, e.key);
+        setCell(m, c, s, e.key, sel.t);
         e.preventDefault();
         return;
       }
       const tech = TECHNIQUES.find(([k]) => k === e.key.toLowerCase());
       if (tech && !e.metaKey && !e.ctrlKey) {
-        setCell(m, c, s, tech[0]);
+        setCell(m, c, s, tech[0], sel.t);
         move(0, 1, 0);
         e.preventDefault();
         return;
@@ -680,7 +705,7 @@ export default function TabEditor() {
       switch (e.key) {
         case "Backspace":
         case "Delete":
-          setCell(m, c, s, "");
+          setCell(m, c, s, "", sel.t);
           e.preventDefault();
           break;
         case "ArrowRight": move(0, 1, 0); e.preventDefault(); break;
@@ -703,6 +728,7 @@ export default function TabEditor() {
       playTimer.current = null;
     }
     samplerRef.current?.allNotesOff();
+    bassSamplerRef.current?.allNotesOff();
     setPlayPos(null);
   }, []);
 
@@ -820,6 +846,22 @@ export default function TabEditor() {
     }
   }, [ensureSampler, exporting]);
   const exportMp3Ref = useRef(exportMp3); exportMp3Ref.current = exportMp3;
+  // the bass lane plays on its own sampler (bass bank only), routed into the
+  // guitar sampler's master so it shares the room, the level and the export tap
+  const bassSamplerRef = useRef<GuitarSampler | null>(null);
+  const ensureBassSampler = useCallback((guitar: GuitarSampler): GuitarSampler => {
+    if (!bassSamplerRef.current) {
+      const b = new GuitarSampler(guitar.ctx, { bassOnly: true, outputTo: guitar.outputNode() });
+      b.playerRules = rulesRef.current;
+      b.bassRig = bassRigRef.current;
+      b.setLevel(levelRef.current);
+      b.setTight(chugCfgRef.current.tight);
+      b.stringCount = 4;
+      bassSamplerRef.current = b;
+      if (bassRigRef.current === "capture") void ensureBassCapture(b);
+    }
+    return bassSamplerRef.current;
+  }, [ensureBassCapture]);
   const play = useCallback((start = 0, end = Infinity) => {
     {
       const sg = songRef.current;
@@ -846,6 +888,10 @@ export default function TabEditor() {
       if (!sampler.loaded) {
         sampler.ready().then(() => playRef.current(start, end));
         return;
+      }
+      if (songRef.current.bassTuning) {
+        const b = ensureBassSampler(sampler);
+        if (!b.loaded) { b.ready().then(() => playRef.current(start, end)); return; }
       }
     }
     const LOOKAHEAD = 0.13;
@@ -900,8 +946,8 @@ export default function TabEditor() {
       }
     };
 
-    const dispatch = (s: Song, a: NoteAction, when: number, chord?: { stroke: "d" | "u" }) => {
-      const sampler = samplerRef.current;
+    const dispatch = (s: Song, a: NoteAction, when: number, chord?: { stroke: "d" | "u" }, viaSampler?: GuitarSampler) => {
+      const sampler = viaSampler ?? samplerRef.current;
       const useGuitar = (s.sound === "guitar" || s.sound === "guitar-di") && sampler?.loaded;
       if (useGuitar && sampler) {
         const sd = slotDurOf(s, pos.m);
@@ -1003,6 +1049,12 @@ export default function TabEditor() {
         } else {
           for (const a of acts) dispatch(s, a, nextTime);
         }
+        // the bass lane: its own actions on its own sampler, same clock
+        const bv = s.bassTuning ? bassView(s) : null;
+        if (bv && bassSamplerRef.current?.loaded) {
+          const bs = bassSamplerRef.current;
+          for (const a of columnActions(bv, pos.m, pos.c)) dispatch(bv, a, nextTime, undefined, bs);
+        }
         if (clickRef.current && pos.c % (s.measures[pos.m].spb ?? DEFAULT_SPB) === 0) click(nextTime, pos.c === 0);
         uiQueue.push({ t: nextTime, m: pos.m, c: pos.c });
         nextTime += slotDurOf(s, pos.m);
@@ -1017,7 +1069,7 @@ export default function TabEditor() {
     };
     timerFn();
     playTimer.current = window.setInterval(timerFn, 25);
-  }, [stop, pluck, glideNote, ensureSampler]);
+  }, [stop, pluck, glideNote, ensureSampler, ensureBassSampler]);
   playRef.current = play;
 
   useEffect(() => stop, [stop]);
@@ -1229,6 +1281,7 @@ export default function TabEditor() {
     undo: () => undoRef.current(),
     redo: () => redoRef.current(),
     flushHistory: () => flushPersistRef.current(),
+    bassFollow: (from?: number, to?: number) => followGuitar(from, to),
     exportMp3: () => exportMp3Ref.current(),
   };
   // the ref above now reflects this render's state — release any tool call
@@ -1600,6 +1653,10 @@ export default function TabEditor() {
             <button onClick={(e) => transposeBy(-1, e.altKey)}>♭</button>
             <button onClick={(e) => transposeBy(1, e.altKey)}>♯</button>
           </div>
+          <div className="btn-group" title="a bass lane under every bar, played through the bass channel">
+            <button className={song.bassTuning ? "on" : ""} onClick={toggleBassTrack}>{song.bassTuning ? "bass ✓" : "+ bass"}</button>
+            <button onClick={() => followGuitar()} title="write a bass line that follows the guitar's lowest notes (whole song; then edit it)">bass ← guitar</button>
+          </div>
           {notice && <span className="notice">{notice}</span>}
           <label className="knob knob-inline">
             <span>bar {sel.m + 1} sig</span>
@@ -1702,13 +1759,28 @@ export default function TabEditor() {
                 m={m}
                 nStrings={nStrings}
                 tuning={song.tuning}
-                selC={sel.m === m ? sel.c : -1}
+                selC={sel.m === m && sel.t !== "b" ? sel.c : -1}
                 selS={sel.m === m ? sel.s : -1}
                 playC={playPos !== null && playPos[0] === m ? playPos[1] : -1}
                 onSelect={onSelectCell}
                 barSelected={!!barSel && m >= barSel.from && m <= barSel.to}
                 onSelectBar={onSelectBar}
               />
+              {song.bassTuning && (
+                <MeasureGrid
+                  measure={{ ...measure, cols: measure.cols.map((_, ci) => measure.bass?.[ci] ?? Array(song.bassTuning!.length).fill("")) }}
+                  m={m}
+                  nStrings={song.bassTuning.length}
+                  tuning={song.bassTuning}
+                  selC={sel.m === m && sel.t === "b" ? sel.c : -1}
+                  selS={sel.s}
+                  playC={playPos !== null && playPos[0] === m ? playPos[1] : -1}
+                  onSelect={onSelectCell}
+                  barSelected={false}
+                  onSelectBar={onSelectBar}
+                  track="b"
+                />
+              )}
             </Fragment>
           ))}
         </section>

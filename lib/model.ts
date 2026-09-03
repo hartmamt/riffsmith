@@ -9,6 +9,7 @@ export type Measure = {
   spb?: number;     // grid slots per beat (1=quarters, 2=8ths, 3=triplets, 4=16ths)
   repeatStart?: boolean; // ‖: opens a repeated passage here
   repeatEnd?: number;    // :‖×N — play the passage N times total, then continue
+  bass?: string[][];     // the bass lane: cols[col][bassString], same slots as `cols`; present when the song has a bass track
 };
 
 export type Song = {
@@ -18,9 +19,46 @@ export type Song = {
   bpm: number;
   sound?: "synth" | "guitar" | "guitar-di"; // playback instrument (new songs: guitar; legacy songs without it: synth); guitar-di = clean debug monitoring
   tuning: string[]; // top-to-bottom as displayed (high → low), e.g. ["E4","B3","G3","D3","A2","E2"]
+  bassTuning?: string[]; // set when the song has a bass track (high → low), e.g. ["G2","D2","A1","E1"]
   measures: Measure[];
   updatedAt: number;
 };
+
+/** The bass tuning that matches a guitar tuning (drop tunings get the dropped bass). */
+export function defaultBassTuning(guitarTuning: string[]): string[] {
+  const low = noteToMidi(guitarTuning[guitarTuning.length - 1]) ?? 40;
+  return low <= 35 ? [...TUNING_PRESETS["Bass Drop B"]] : [...TUNING_PRESETS["Bass E Std"]];
+}
+
+/** The bass lane as its own Song (same bars, bass tuning), for scheduling and export. */
+export function bassView(song: Song): Song | null {
+  if (!song.bassTuning) return null;
+  const n = song.bassTuning.length;
+  return {
+    ...song,
+    tuning: song.bassTuning,
+    bassTuning: undefined,
+    measures: song.measures.map((m) => ({
+      ...m,
+      bass: undefined,
+      cols: m.cols.map((_, ci) => Array.from({ length: n }, (_x, si) => m.bass?.[ci]?.[si] ?? "")),
+    })),
+  };
+}
+
+/** Add (with empty bars) or remove the bass track. */
+export function withBassTrack(song: Song, on: boolean, tuning?: string[]): Song {
+  if (!on) return { ...song, bassTuning: undefined, measures: song.measures.map((m) => ({ ...m, bass: undefined })) };
+  const bt = tuning ?? song.bassTuning ?? defaultBassTuning(song.tuning);
+  return {
+    ...song,
+    bassTuning: bt,
+    measures: song.measures.map((m) => ({
+      ...m,
+      bass: m.cols.map((_, ci) => Array.from({ length: bt.length }, (_x, si) => m.bass?.[ci]?.[si] ?? "")),
+    })),
+  };
+}
 
 export const DEFAULT_SIG = "4/4";
 export const DEFAULT_SPB = 4;
@@ -152,6 +190,30 @@ export function toAscii(song: Song, perLine = 4): string {
       }
     }
     lines.push(...rows, "");
+    // the bass lane, as its own system under the guitar's (the importer
+    // recognises the [ bass ] header and reattaches it to these bars)
+    if (song.bassTuning && chunk.some((m) => m.bass?.some((col) => col.some((v) => v)))) {
+      const bt = song.bassTuning;
+      const bl = bt.map((n) => n.replace(/\d/g, ""));
+      const blW = Math.max(...bl.map((l) => l.length));
+      const brows = bt.map((_, s) => `${bl[s].padEnd(blW)}|`);
+      const bw = Math.max(1, ...chunk.flatMap((mm) => (mm.bass ?? []).flat().map((v) => v.length))) + 1;
+      lines.push(`[ bass · ${chunk[0].sig ?? DEFAULT_SIG} ]`);
+      for (const measure of chunk) {
+        if (measure.repeatStart) for (let s = 0; s < bt.length; s++) brows[s] += ":";
+        for (let c = 0; c < measure.cols.length; c++) {
+          const col = measure.bass?.[c] ?? [];
+          for (let s = 0; s < bt.length; s++) brows[s] += (col[s] || "").padEnd(bw, "-");
+        }
+        if (measure.repeatEnd && measure.repeatEnd > 1) {
+          const tag = `x${measure.repeatEnd}`;
+          for (let s = 0; s < bt.length; s++) brows[s] += ":|" + (s === 0 ? tag : " ".repeat(tag.length));
+        } else {
+          for (let s = 0; s < bt.length; s++) brows[s] += "|";
+        }
+      }
+      lines.push(...brows, "");
+    }
   }
   return lines.join("\n");
 }

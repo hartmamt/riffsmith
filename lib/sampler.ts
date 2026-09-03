@@ -248,16 +248,24 @@ export class GuitarSampler {
     return (art === "open" ? 0.6 : 1) * (4 + 20 * lowness) * Math.max(0, Math.min(1, velocity));
   }
 
-  constructor(ctx: AudioContext) {
+  // bassOnly: a second instance for the bass lane — skips the guitar banks
+  // and sends its output into the guitar sampler's master (one room, one tap)
+  private readonly opts: { bassOnly?: boolean; outputTo?: AudioNode };
+  constructor(ctx: AudioContext, opts: { bassOnly?: boolean; outputTo?: AudioNode } = {}) {
     this.ctx = ctx;
+    this.opts = opts;
+    if (opts.bassOnly) { this.instrument = "bass"; this.roomAmount = 0; }
   }
+
+  /** The node every amp output reaches (for chaining a second sampler in). */
+  outputNode(): AudioNode { return this.outNode(); }
 
   /** Every amp's output: straight to the speakers plus the room send. */
   private outNode(): AudioNode {
     if (this.master) return this.master;
     const ctx = this.ctx;
     const master = ctx.createGain();
-    master.connect(ctx.destination);
+    master.connect(this.opts.outputTo ?? ctx.destination);
     const conv = ctx.createConvolver();
     conv.buffer = this.makeRoomIR();
     const send = ctx.createGain();
@@ -392,7 +400,9 @@ export class GuitarSampler {
       // first play needs the Guitar-TECHS notes and the muting noises (~8 MB);
       // the amp is built as soon as they land. Selecting another bank in the
       // rig awaits its load explicitly.
-      const first = this.noteBank === "fsbs" ? [...urls.map(load), loadGt(), this.ensureFsbs()] : [...urls.map(load), loadGt()];
+      const first = this.opts.bassOnly
+        ? [...urls.map(load), this.loadBass()]
+        : this.noteBank === "fsbs" ? [...urls.map(load), loadGt(), this.ensureFsbs()] : [...urls.map(load), loadGt()];
       this.loading = Promise.all(first)
         .then(() => this.buildAmp())
         // the built-in mutes are the fallback for chugs outside the LP bank's
@@ -506,7 +516,9 @@ export class GuitarSampler {
 
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
-    chain.comp.connect(analyser); // metering tap
+    // metering tap on the master: every amp, both takes, and the bass lane's
+    // sampler (which routes into this master) all show on the meter
+    this.outNode().connect(analyser);
     this.analyser = analyser;
 
     // raw sample audition: NOTHING in the path — no drive, cab, EQ, or
@@ -610,7 +622,6 @@ export class GuitarSampler {
     const post = ctx.createGain(); post.gain.value = 0.35 * this.level; // level-matched to the captures
     input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
     post.connect(this.outNode());
-    if (this.analyser) post.connect(this.analyser);
     this.bassAmp = { input, drive, post };
     return this.bassAmp;
   }
@@ -648,7 +659,6 @@ export class GuitarSampler {
       const post = ctx.createGain(); post.gain.value = 0.7 * this.level; // lands a hair under the guitar rig's RMS with peaks held by the compressor
       input.connect(trim).connect(node).connect(makeup).connect(comp).connect(post);
       post.connect(this.outNode());
-      if (this.analyser) post.connect(this.analyser);
       if (this.bassNam) { try { this.bassNam.input.disconnect(); this.bassNam.post.disconnect(); } catch {} }
       this.bassNam = { input, node, post, name };
       return { ok: true };
@@ -2151,7 +2161,6 @@ export class GuitarSampler {
         this.namPost = ctx.createGain();
         this.namPost.gain.value = 0.65 * this.level;
         this.namPost.connect(this.outNode());
-        if (this.analyser) this.namPost.connect(this.analyser);
       }
       if (!this.namCab) { this.namCab = ctx.createConvolver(); this.namCab.buffer = this.cab.buffer; }
       try { this.namIn.disconnect(); } catch {}

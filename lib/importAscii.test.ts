@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { importAscii } from "./importAscii";
-import { DEFAULT_SIG, DEFAULT_SPB, Song, TUNING_PRESETS, emptyMeasure, toAscii } from "./model";
+import { DEFAULT_SIG, DEFAULT_SPB, Song, TUNING_PRESETS, emptyMeasure, toAscii, withBassTrack } from "./model";
 
 // A song whose bars deliberately disagree with each other: three meters, four
 // grids, repeats, and tokens of every width ("0", "m10", "^12", "/7"). The
@@ -54,5 +54,23 @@ describe("ASCII round trip", () => {
       const w = Math.min(...widths.map((n) => n % 2 === 0 ? 2 : n % 3 === 0 ? 3 : 4));
       for (const n of widths) expect(n % w).toBe(0);
     }
+  });
+});
+
+describe("bass lane round trip", () => {
+  it("exports the bass lane as its own [ bass ] system and reads it back onto the same bars", () => {
+    const base = mixedSong();
+    const song = withBassTrack({ ...base, measures: base.measures.slice(0, 2) }, true, [...TUNING_PRESETS["Bass Drop B"]]);
+    song.measures[0].bass![0][3] = "m0"; song.measures[0].bass![2][3] = "m3"; song.measures[1].bass![0][2] = "5"; song.measures[1].bass![1][2] = "=";
+    const text = toAscii(song);
+    expect(text).toMatch(/\[ bass · 3\/4 \]/);
+    const res = importAscii(text);
+    expect("error" in res).toBe(false);
+    if ("error" in res) return;
+    expect(res.warnings).toEqual([]);
+    expect(res.song.bassTuning).toEqual(song.bassTuning);
+    expect(res.song.measures[0].bass).toEqual(song.measures[0].bass);
+    expect(res.song.measures[1].bass).toEqual(song.measures[1].bass);
+    expect(res.song.measures[0].cols).toEqual(song.measures[0].cols);
   });
 });

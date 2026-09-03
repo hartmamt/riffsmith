@@ -285,7 +285,17 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
   );
 
   const measures: Measure[] = [];
+  const bassMeasures: Measure[] = [];
+  let bassLabels: string[] | null = null;
   for (const sys of systems) {
+    // "[ bass ]" systems (our own export) are the bass lane of the bars just parsed
+    if (sys.header && /^bass\b/i.test(sys.header.trim())) {
+      const bstride = detectStride(sys, globalStride);
+      const bms = parseSystemMeasures(sys, bstride, sys.labels.length, warnings);
+      bassMeasures.push(...bms);
+      bassLabels = bassLabels ?? sys.labels;
+      continue;
+    }
     if (sys.labels.length !== strings) {
       warnings.push(
         `${sys.header ? `"${sys.header}"` : "An unlabeled system"} has ${sys.labels.length} strings (song has ${strings}) — adapted by string position; check it.`
@@ -304,6 +314,18 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
     measures.push(...ms);
   }
   if (!measures.length) return { error: "Found tab lines but no readable bars." };
+  let bassTuning: string[] | undefined;
+  if (bassLabels && bassMeasures.length) {
+    bassTuning = assignOctaves(bassLabels);
+    const n = bassTuning.length;
+    bassMeasures.forEach((bm, i) => {
+      const gm = measures[i];
+      if (!gm) return;
+      gm.bass = gm.cols.map((_, ci) => Array.from({ length: n }, (_x, si) => bm.cols[ci]?.[si] ?? ""));
+    });
+    for (const gm of measures) if (!gm.bass) gm.bass = gm.cols.map(() => Array(n).fill(""));
+    if (bassMeasures.length !== measures.length) warnings.push(`The bass lane has ${bassMeasures.length} bars for ${measures.length} guitar bars — extra bars were dropped or left empty.`);
+  }
 
   // "Title — Artist" on a line above the tab (our own export format)
   let parsedTitle: string | undefined;
@@ -327,6 +349,7 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
     tuning,
     bpm: bpmMatch ? parseInt(bpmMatch[1], 10) : 120,
     measures,
+    ...(bassTuning ? { bassTuning } : {}),
   };
   return { song, systems: systems.length, bars: measures.length, strings, warnings };
 }
