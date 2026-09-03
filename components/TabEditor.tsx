@@ -1156,7 +1156,7 @@ export default function TabEditor() {
             </button>
             <button
               className="btn audition-item"
-              title="create the bass showcase (Bass Drop B): let-ring low B, gallops, chops, a root/fifth/octave groove with legato, slides, and a held chord"
+              title="create the bass showcase (E standard): let-ring low E, gallops, chops, a root/fifth/octave groove with legato, slides, and a held chord"
               onClick={() => {
                 const t = makeBassShowcaseSong();
                 setSongs((prev) => {

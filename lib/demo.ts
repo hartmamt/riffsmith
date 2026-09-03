@@ -282,12 +282,13 @@ export function makeGuitarShowcaseSong(): Song {
   };
 }
 
-// "Bass Showcase": the same idea for a 4-string in Bass Drop B — let-ring
-// low B, gallops with dead-note chops, a root/fifth/octave groove with
+// "Bass Showcase": the same idea for a 4-string in E standard — let-ring
+// low E, gallops with dead-note chops, a root/fifth/octave groove with
 // hammer-ons and pull-offs, slides both ways, and a held two-note chord.
 export function makeBassShowcaseSong(): Song {
-  const tuning = [...TUNING_PRESETS["Bass Drop B"]];
-  const B0 = 3, F1 = 2, B1 = 1, E2 = 0;
+  const tuning = [...TUNING_PRESETS["Bass E Std"]];
+  // E standard bass, strings top to bottom: 0 G2 · 1 D2 · 2 A1 · 3 E1
+  const B0 = 3, F1 = 2, B1 = 1, E2 = 0; // (names kept from the Drop B draft: lowest → highest string)
   const bl = (lines: Record<number, string>, sig: string, spb: number, label?: string, extra: Partial<ReturnType<typeof emptyMeasure>> = {}) =>
     barLines(tuning, lines, sig, spb, label, extra);
   return {
@@ -298,7 +299,7 @@ export function makeBassShowcaseSong(): Song {
     tuning,
     sound: "guitar",
     measures: [
-      bl({ [B0]: "0 = = = ~ = = =" }, "4/4", 2, "INTRO · low B, let ring"),
+      bl({ [B0]: "0 = = = ~ = = =" }, "4/4", 2, "INTRO · low E, let ring"),
       bl({ [B0]: "0 = = /5 = = \\3 =" }, "4/4", 2),
       bl({ [B0]: "m0 m0 m0 3 m0 m0 5 = m0 m0 m0 6 m0 m0 /8 =" }, "4/4", 4, "RIFF · gallops, slides, chops", { repeatStart: true }),
       bl({ [B0]: "m0 m0 m0 3 m0 m0 x x m0 m0 m0 6 5 3 0 =" }, "4/4", 4),
