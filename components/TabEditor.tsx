@@ -1139,6 +1139,11 @@ export default function TabEditor() {
                 setSel({ m: 0, c: 0, s: 0 });
                 ensureSampler().ready();
                 track("audition_song_opened", { title: t.title });
+                // the mirror of the clean showcase: back to the distorted capture, riff-tight ring, sample voices
+                setTight(0.55); localStorage.setItem("gs.tight", "0.55");
+                setRing(1.1);
+                setLegacyEngine(false); setHybridEngine(false); setModelOnly(false);
+                if (bundledNam.some((b) => /distorted/i.test(b.name) && b.instrument !== "bass")) void selectNamModel(bundledNam.find((b) => /distorted/i.test(b.name) && b.instrument !== "bass")!.name);
               }}
             >
               guitar showcase
