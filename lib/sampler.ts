@@ -617,7 +617,7 @@ export class GuitarSampler {
   }
 
   /** Load a bass capture into its own NAM instance (bass DI → trim → model → makeup → out). */
-  async loadBassCapture(modelJson: string, name = "bass capture"): Promise<{ ok: boolean; error?: string }> {
+  async loadBassCapture(modelJson: string, name = "bass capture", trimDb = 0): Promise<{ ok: boolean; error?: string }> {
     try { JSON.parse(modelJson); } catch { return { ok: false, error: "Not a valid .nam file (expected JSON)." }; }
     await this.ready();
     const ctx = this.ctx;
@@ -626,8 +626,12 @@ export class GuitarSampler {
       const r = await this.loadModelInto(node, modelJson);
       if (!r.ok) return { ok: false, error: r.error ?? "model load failed" };
       const input = ctx.createGain();
-      const trim = ctx.createGain(); trim.gain.value = this.namInputTrim;
-      const makeupDb = r.loudness !== null && r.loudness !== undefined && isFinite(r.loudness) ? Math.max(-12, Math.min(24, -18 - r.loudness)) : 6;
+      // the bass DI runs ~6 dB hotter than the guitar DI and a clean amp capture
+      // reproduces its own clipping when pushed, so the bass channel has its own
+      // fixed input level (the rig's NAM input slider is the guitar's)
+      const trim = ctx.createGain(); trim.gain.value = 0.5;
+      // loudness metadata normalises to -18 dB; trimDb (from the manifest) corrects captures whose metadata over- or under-shoots
+      const makeupDb = (r.loudness !== null && r.loudness !== undefined && isFinite(r.loudness) ? Math.max(-12, Math.min(24, -18 - r.loudness)) : 6) + trimDb;
       const makeup = ctx.createGain(); makeup.gain.value = Math.pow(10, makeupDb / 20);
       const post = ctx.createGain(); post.gain.value = 0.65 * this.level;
       input.connect(trim).connect(node).connect(makeup).connect(post);

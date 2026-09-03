@@ -15,12 +15,21 @@
       "note": "Matt's clean channel \u2014 redistributable, shipped in the repo."
     },
     {
-      "name": "RiffSmith Bass",
-      "url": "/nam/models/riffsmith-bass.nam",
+      "name": "RiffSmith Bass Clean",
+      "url": "/nam/models/riffsmith-bass-clean.nam",
       "instrument": "bass",
       "credit": "trained by Matt Hartman on his own bass rig",
       "creditUrl": "https://riffsmith.app",
-      "note": "Matt's bass rig \u2014 redistributable, shipped in the repo. Used by the bass channel, not the guitar dropdown."
+      "note": "Matt's clean bass rig \u2014 redistributable, shipped in the repo. Default bass channel. trim_db: its loudness metadata over-corrects.",
+      "trim_db": -8
+    },
+    {
+      "name": "RiffSmith Bass Distorted",
+      "url": "/nam/models/riffsmith-bass-distorted.nam",
+      "instrument": "bass",
+      "credit": "trained by Matt Hartman on his own bass rig",
+      "creditUrl": "https://riffsmith.app",
+      "note": "Matt's driven bass rig \u2014 redistributable, shipped in the repo."
     }
   ]
 }

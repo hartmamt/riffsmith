@@ -55,8 +55,9 @@ kept in a per-browser library, and an agent can switch between them with
 `set_rig { nam_model }`, or `none` for the built-in amp.
 
 For bass, open **audition songs → bass showcase**: bass tunings switch to a
-real bass through the bundled **RiffSmith Bass** capture automatically
-(`set_rig { bass_rig }` picks the capture, the built-in bass amp, or the guitar rig).
+real bass through the bundled **RiffSmith Bass Clean** capture automatically
+(`set_rig { bass_model: "RiffSmith Bass Distorted" }` for the driven one; `bass_rig` picks
+the capture, the built-in bass amp, or the guitar rig).
 
 ## Source
 

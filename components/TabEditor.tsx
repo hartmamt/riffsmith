@@ -17,7 +17,7 @@ import { clearPmBank, kvDelete, kvGet, kvSet, loadPmSamples, parsePmFilename, sa
 
 const STORE_KEY = "guitarscrobble.songs.v1";
 
-type BundledNam = { name: string; url: string; credit?: string; creditUrl?: string; instrument?: "guitar" | "bass" };
+type BundledNam = { name: string; url: string; credit?: string; creditUrl?: string; instrument?: "guitar" | "bass"; trim_db?: number };
 
 // Guitar-TECHS palm mutes as a pm bank: one LP-humbucker take per string×fret;
 // takes of the same pitch on different strings become the round robins
@@ -229,18 +229,32 @@ export default function TabEditor() {
   const [bassRig, setBassRig] = useState<"bass" | "capture" | "guitar">(() =>
     typeof window === "undefined" ? "capture" : ((localStorage.getItem("gs.bassRig") as "bass" | "capture" | "guitar" | null) ?? "capture"));
   const bassRigRef = useRef<"bass" | "capture" | "guitar">("capture");
-  const bassCaptureLoad = useRef<Promise<void> | null>(null);
-  // the bundled bass capture loads the first time the bass channel needs it
+  // which bundled bass capture the bass channel runs through ("" = the first one listed)
+  const [bassModel, setBassModel] = useState<string>(() =>
+    typeof window === "undefined" ? "" : (localStorage.getItem("gs.bassModel") ?? ""));
+  const bassModelRef = useRef("");
+  const bassCaptureLoaded = useRef<string | null>(null);   // name currently in the sampler
+  const bassCaptureLoading = useRef<Promise<void> | null>(null);
+  // load the chosen bass capture into the sampler (first listed if none chosen)
   const ensureBassCapture = useCallback((s: GuitarSampler) => {
-    if (!bassCaptureLoad.current) bassCaptureLoad.current = (async () => {
-      const b = (await fetchBundledNam()).find((x) => x.instrument === "bass");
+    const want = bassModelRef.current;
+    if (bassCaptureLoaded.current && (want === "" || bassCaptureLoaded.current === want)) return Promise.resolve();
+    if (!bassCaptureLoading.current) bassCaptureLoading.current = (async () => {
+      const basses = (await fetchBundledNam()).filter((x) => x.instrument === "bass");
+      const b = basses.find((x) => x.name === want) ?? basses[0];
       if (!b) return;
       const json = await fetch(b.url).then((r) => r.text());
-      const r = await s.loadBassCapture(json, b.name);
-      if (!r.ok) { console.warn("bass capture unavailable, using the bass amp:", r.error); bassCaptureLoad.current = null; }
-    })();
-    return bassCaptureLoad.current;
+      const r = await s.loadBassCapture(json, b.name, b.trim_db ?? 0);
+      if (r.ok) bassCaptureLoaded.current = b.name;
+      else console.warn("bass capture unavailable, using the bass amp:", r.error);
+    })().finally(() => { bassCaptureLoading.current = null; });
+    return bassCaptureLoading.current;
   }, []);
+  useEffect(() => {
+    bassModelRef.current = bassModel;
+    localStorage.setItem("gs.bassModel", bassModel);
+    if (bassRigRef.current === "capture" && samplerRef.current) void ensureBassCapture(samplerRef.current);
+  }, [bassModel, ensureBassCapture]);
   useEffect(() => {
     bassRigRef.current = bassRig;
     localStorage.setItem("gs.bassRig", bassRig);
@@ -906,6 +920,8 @@ export default function TabEditor() {
       feedback,
       ring,
       bass_rig: bassRig,
+      bass_model: bassModel || (bundledNam.find((b) => b.instrument === "bass")?.name ?? null),
+      bass_models: bundledNam.filter((b) => b.instrument === "bass").map((b) => b.name),
       nam_input: namInput,
       room,
       nam_model: namStatus && !namStatus.startsWith("✕") ? namStatus : null,
@@ -942,6 +958,7 @@ export default function TabEditor() {
       if (patch.feedback !== undefined) setFeedback(patch.feedback);
       if (patch.ring !== undefined) setRing(patch.ring);
       if (patch.bass_rig !== undefined) setBassRig(patch.bass_rig);
+      if (patch.bass_model !== undefined) { setBassModel(patch.bass_model ?? ""); setBassRig("capture"); }
       if (patch.nam_input !== undefined) setNamInput(Math.max(0.1, Math.min(2, patch.nam_input)));
       if (patch.room !== undefined) setRoom(Math.max(0, Math.min(1, patch.room)));
       if (patch.cab !== undefined) {
@@ -1439,11 +1456,15 @@ export default function TabEditor() {
               <div className="rig-row">
                 <span>bass</span>
                 <select
-                  value={bassRig}
-                  title="capture: Matt's bass rig as a NAM capture; bass amp: the built-in clean-to-gritty chain (tight = drive); guitar rig: through the guitar capture for a distorted bass"
-                  onChange={(e) => setBassRig(e.target.value as "bass" | "capture" | "guitar")}
+                  value={bassRig === "capture" ? `capture:${bassModel || (bundledNam.find((b) => b.instrument === "bass")?.name ?? "")}` : bassRig}
+                  title="captures: Matt's bass rigs as NAM captures (clean or driven); bass amp: the built-in clean-to-gritty chain (tight = drive); guitar rig: through the guitar capture for a distorted bass"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v.startsWith("capture:")) { setBassModel(v.slice(8)); setBassRig("capture"); }
+                    else setBassRig(v as "bass" | "guitar");
+                  }}
                 >
-                  {bundledNam.filter((b) => b.instrument === "bass").map((b) => <option key={b.name} value="capture">⚡ {b.name} (capture)</option>)}
+                  {bundledNam.filter((b) => b.instrument === "bass").map((b) => <option key={b.name} value={`capture:${b.name}`}>⚡ {b.name}</option>)}
                   <option value="bass">bass amp (built-in)</option>
                   <option value="guitar">guitar rig (distorted)</option>
                 </select>
