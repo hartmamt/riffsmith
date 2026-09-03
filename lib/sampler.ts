@@ -600,7 +600,7 @@ export class GuitarSampler {
     const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000; lp.Q.value = 0.6;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.15; comp.knee.value = 6;
-    const post = ctx.createGain(); post.gain.value = 0.5 * this.level; // level-matched to the captures
+    const post = ctx.createGain(); post.gain.value = 0.35 * this.level; // level-matched to the captures
     input.connect(hp).connect(drive).connect(shaper).connect(low).connect(mid).connect(pres).connect(lp).connect(comp).connect(post);
     post.connect(this.outNode());
     if (this.analyser) post.connect(this.analyser);
@@ -612,8 +612,8 @@ export class GuitarSampler {
     this.level = Math.max(0, Math.min(2, x));
     if (this.post) this.post.gain.value = 0.65 * this.level;
     if (this.namPost) this.namPost.gain.value = 0.65 * this.level;
-    if (this.bassAmp) this.bassAmp.post.gain.value = 0.5 * this.level;
-    if (this.bassNam) this.bassNam.post.gain.value = 0.65 * this.level;
+    if (this.bassAmp) this.bassAmp.post.gain.value = 0.35 * this.level;
+    if (this.bassNam) this.bassNam.post.gain.value = 0.7 * this.level;
   }
 
   /** Load a bass capture into its own NAM instance (bass DI → trim → model → makeup → out). */
@@ -633,8 +633,13 @@ export class GuitarSampler {
       // loudness metadata normalises to -18 dB; trimDb (from the manifest) corrects captures whose metadata over- or under-shoots
       const makeupDb = (r.loudness !== null && r.loudness !== undefined && isFinite(r.loudness) ? Math.max(-12, Math.min(24, -18 - r.loudness)) : 6) + trimDb;
       const makeup = ctx.createGain(); makeup.gain.value = Math.pow(10, makeupDb / 20);
-      const post = ctx.createGain(); post.gain.value = 0.65 * this.level;
-      input.connect(trim).connect(node).connect(makeup).connect(post);
+      // a bass always sits behind a compressor: it tames the transients that
+      // make an uncompressed capture read quiet next to the guitar rig, and
+      // lets the channel come up to the guitar's perceived level
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.004; comp.release.value = 0.12; comp.knee.value = 6;
+      const post = ctx.createGain(); post.gain.value = 0.7 * this.level; // lands a hair under the guitar rig's RMS with peaks held by the compressor
+      input.connect(trim).connect(node).connect(makeup).connect(comp).connect(post);
       post.connect(this.outNode());
       if (this.analyser) post.connect(this.analyser);
       if (this.bassNam) { try { this.bassNam.input.disconnect(); this.bassNam.post.disconnect(); } catch {} }
