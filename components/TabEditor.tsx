@@ -13,6 +13,8 @@ import { track } from "@/lib/analytics";
 import { transposeMeasures } from "@/lib/transpose";
 import { bassFollowGuitar } from "@/lib/bassFollow";
 import { DRUM_LABELS, DRUM_ROWS, DrumKit, drumsFollowGuitar, withDrumTrack } from "@/lib/drums";
+import { importGuitarPro } from "@/lib/importGp";
+import { songToMidi } from "@/lib/midiExport";
 import { decodeSharedSong, sharedPayloadFromLocation, shareUrlFor } from "@/lib/share";
 import { downloadBlob, encodeMp3, startRecording } from "@/lib/exportMp3";
 import { makeBassAuditionSong, makeBassShowcaseSong, makeChugAuditionSong, makeCleanShowcaseSong, makeGuitarShowcaseSong, makeStarterSong, makeStringAuditionSong, makeTechniqueTestSong, makeTremoloAuditionSong } from "@/lib/demo";
@@ -214,6 +216,7 @@ export default function TabEditor() {
     return isFinite(v) ? v : 1;
   });
   const namFileRef = useRef<HTMLInputElement>(null);
+  const gpFileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const playTimer = useRef<number | null>(null);
   const songRef = useRef<Song | null>(null);
@@ -867,6 +870,28 @@ export default function TabEditor() {
     }
   }, [ensureSampler, exporting]);
   const exportMp3Ref = useRef(exportMp3); exportMp3Ref.current = exportMp3;
+  // Guitar Pro / MusicXML / alphaTex file → a new song (guitar + bass + drums lanes when the file has them)
+  const openGuitarPro = useCallback(async (file: File) => {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const res = await importGuitarPro(bytes);
+      if ("error" in res) { showNotice(res.error); return; }
+      const song = { ...res.song, title: res.song.title === "Imported Guitar Pro" ? file.name.replace(/\.[^.]+$/, "") : res.song.title };
+      setSongs((prev) => [song, ...(prev ?? [])]);
+      setActiveId(song.id); setSel({ m: 0, c: 0, s: 0 }); setBarSel(null);
+      ensureSampler().ready();
+      const used = res.tracks[res.used.guitar]?.name ?? "guitar";
+      showNotice(`imported ${res.tracks.length} track${res.tracks.length > 1 ? "s" : ""}: ${used}${res.used.bass !== null ? " + bass" : ""}${res.used.drums !== null ? " + drums" : ""}${res.warnings.length ? ` · ${res.warnings.length} warning(s)` : ""}`);
+      track("guitar_pro_imported", { tracks: res.tracks.length, bars: song.measures.length, bass: res.used.bass !== null, drums: res.used.drums !== null, warnings: res.warnings.length });
+    } catch (e) { showNotice(`import failed: ${e instanceof Error ? e.message : String(e)}`); }
+  }, [ensureSampler, showNotice]);
+  const exportMidi = useCallback(() => {
+    const s = songRef.current; if (!s) return;
+    const bytes = songToMidi(s);
+    downloadBlob(new Blob([bytes as BlobPart], { type: "audio/midi" }), `${s.title.replace(/[^\w\- ]+/g, "").trim() || "riffsmith"}.mid`);
+    track("midi_exported", { bars: s.measures.length, bass: !!s.bassTuning, drums: !!s.drums });
+    showNotice("MIDI saved ✓");
+  }, [showNotice]);
   // the bass lane plays on its own sampler (bass bank only), routed into the
   // guitar sampler's master so it shares the room, the level and the export tap
   const bassSamplerRef = useRef<GuitarSampler | null>(null);
@@ -1402,6 +1427,14 @@ export default function TabEditor() {
         <button className="btn wide" onClick={() => { setShowImport(true); setImportError(null); }}>
           ⇪ paste ascii tab
         </button>
+        <button className="btn wide" onClick={() => gpFileRef.current?.click()} title="open a Guitar Pro file (gp3, gp4, gp5, gpx, gp) or MusicXML: the first guitar track becomes the song, a bass track the bass lane, a drum track the drum lane">
+          ⇪ open guitar pro
+        </button>
+        <input
+          ref={gpFileRef} type="file" accept=".gp3,.gp4,.gp5,.gpx,.gp,.xml,.musicxml,.mxl,.tex,.alphatex"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void openGuitarPro(f); e.target.value = ""; }}
+        />
         <button className="btn wide" onClick={() => setAuditionOpen((v) => !v)}>
           ⚙ audition songs {auditionOpen ? "▴" : "▾"}
         </button>
@@ -1754,6 +1787,7 @@ export default function TabEditor() {
                   {copied ? "copied ✓" : "copy tab"}
                 </button>
                 <button onClick={() => { downloadAscii(); setAsciiOpen(false); }}>download .txt</button>
+                <button onClick={() => { exportMidi(); setAsciiOpen(false); }} title="Standard MIDI file: guitar, bass and drum tracks, repeats expanded, bends as pitch bend">export midi</button>
                 <button onClick={() => { void shareLink(); setAsciiOpen(false); }} title="copy a link that carries this whole song — no account, no server">
                   {shared === "copied" ? "link copied ✓" : shared === "failed" ? "couldn't copy" : "share link"}
                 </button>

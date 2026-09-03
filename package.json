@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
+    "@coderline/alphatab": "^1.8.4",
     "@opendaw/nam-wasm": "^1.2.0",
     "next": "16.3.2",
     "posthog-js": "^1.425.1",

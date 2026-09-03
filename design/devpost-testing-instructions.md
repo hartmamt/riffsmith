@@ -10,7 +10,7 @@ audio start; the sample banks and the amp capture load on that first play.
 
 1. Open the URL in **ChatGPT's in-app browser** or **Chrome 149+ with
    `chrome://flags/#enable-webmcp-testing`**.
-2. The page registers **22 tools** at module load on `document.modelContext`
+2. The page registers **24 tools** at module load on `document.modelContext`
    (with `navigator.modelContext` and `provideContext` fallbacks). In ChatGPT
    they appear under **Site tools**; in Chrome, DevTools has a WebMCP panel.
    If a client snapshots the page before that first script runs, reload once;
@@ -34,7 +34,7 @@ audio start; the sample banks and the amp capture load on that first play.
 
 Open DevTools and run:
 ```js
-window.__webmcp.list()                                  // the 22 tool names
+window.__webmcp.list()                                  // the 24 tool names
 await window.__webmcp.call("get_song", {})              // read the open song
 await window.__webmcp.call("write_notes", { bar: 1, string: 6, cells: "m0 m0 x 0" })
 await window.__webmcp.call("set_rig", { picking: "down", tight: 0.8, double_track: true })

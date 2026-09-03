@@ -11,6 +11,8 @@ import {
   DEFAULT_SIG, DEFAULT_SPB, GRID_VALUES, Measure, Song, TUNING_PRESETS, emptyMeasure, reshapeMeasure, sigBeats, toAscii, SIGS, noteToMidi, withBassTrack, bassView,
 } from "./model";
 import { DRUM_ROWS, withDrumTrack } from "./drums";
+import { importAlphaTex, importGuitarPro } from "./importGp";
+import { songToMidi } from "./midiExport";
 import { importAscii } from "./importAscii";
 import { track } from "./analytics";
 import { shareUrlFor } from "./share";
@@ -747,6 +749,67 @@ export function buildTools(get: () => WebMcpActions): ToolDef[] {
         await nextCommit();
         const after = findSong(get(), s.id);
         return ok(`Drums follow the guitar in bars ${from + 1}-${to + 1}.`, after ? { ascii: toAscii(after) } : {});
+      },
+    },
+    {
+      name: "import_guitar_pro",
+      description: "Import a Guitar Pro file (gp3/gp4/gp5/gpx/gp, also MusicXML) given as base64, or alphaTex text, as a new song. The first guitar track becomes the song; a bass track becomes the bass lane and a percussion track the drum lane (override with track/bass/drums indexes; set bass or drums to -1 to skip). Returns the track list, what was used, warnings, and the tab.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          base64: { type: "string", description: "the file's bytes, base64-encoded" },
+          alphatex: { type: "string", description: "alphaTex source instead of a file" },
+          title: { type: "string" },
+          track: { type: "number", description: "0-based track index to use as the guitar" },
+          bass: { type: "number", description: "0-based track index for the bass lane (-1 = none)" },
+          drums: { type: "number", description: "0-based track index for the drum lane (-1 = none)" },
+        },
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const a = get();
+        const opts = {
+          track: args.track !== undefined ? Number(args.track) : undefined,
+          bass: args.bass === undefined ? undefined : Number(args.bass) < 0 ? null : Number(args.bass),
+          drums: args.drums === undefined ? undefined : Number(args.drums) < 0 ? null : Number(args.drums),
+        };
+        let res;
+        if (typeof args.alphatex === "string" && args.alphatex.trim()) res = await importAlphaTex(args.alphatex, opts);
+        else if (typeof args.base64 === "string" && args.base64) {
+          let bytes: Uint8Array;
+          try { const bin = atob(args.base64.replace(/^data:[^,]*,/, "")); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); }
+          catch { return fail("base64 could not be decoded."); }
+          res = await importGuitarPro(bytes, opts);
+        } else return fail("Give base64 (a Guitar Pro / MusicXML file) or alphatex.");
+        if ("error" in res) return fail(res.error);
+        const song = { ...res.song, title: args.title !== undefined ? String(args.title) : res.song.title };
+        a.setSongs((prev) => [song, ...prev]);
+        a.setActiveId(song.id);
+        await nextCommit();
+        return ok(`Imported "${song.title}": ${song.measures.length} bars from ${res.tracks.length} track(s).`, {
+          id: song.id, tracks: res.tracks, used: res.used, warnings: res.warnings, ascii: toAscii(song),
+        });
+      },
+    },
+    {
+      name: "export_midi",
+      description: "Export a song as a Standard MIDI file (format 1: guitar, bass lane and drum lane as tracks; repeats expanded; bends and slides as pitch bend). Returns the file as base64 for you to save, and the browser downloads it for the human.",
+      inputSchema: { type: "object", properties: { ...songParam }, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async (args) => {
+        const a = get();
+        const s = findSong(a, args.song);
+        if (!s) return fail("Song not found.");
+        const bytes = songToMidi(s);
+        let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const b64 = btoa(bin);
+        const name = `${s.title.replace(/[^\w\- ]+/g, "").trim() || "riffsmith"}.mid`;
+        try {
+          const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "audio/midi" }));
+          const el = document.createElement("a"); el.href = url; el.download = name; document.body.appendChild(el); el.click(); el.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+        } catch { /* no DOM (tests) */ }
+        return ok(`MIDI for "${s.title}": ${bytes.length} bytes.`, { filename: name, base64: b64 });
       },
     },
     {
