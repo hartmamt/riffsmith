@@ -337,6 +337,18 @@ export default function TabEditor() {
               const n = await s.loadCustomPm(recs);
               if (n) { setPmSource("custom"); setPmBankInfo(`custom ×${n}`); }
             }
+          }
+          // the amp: restore the capture this browser last chose, else ship
+          // the bundled default (RiffSmith Distorted) on a first visit
+          const saved = await kvGet<{ name: string; json: string }>("namModel");
+          if (saved) {
+            const res = await s.loadNamModel(saved.json, saved.name);
+            if (res.ok) {
+              setNamStatus(saved.name);
+              const cab = localStorage.getItem("gs.cabOn") === "1";
+              setCabOn(cab);
+              s.setCabBypass(!cab);
+            }
           } else if (localStorage.getItem("gs.namChoice") !== "1") {
             // first run: ship the demo capture as the default amp until the user picks something
             const first = (await fetchBundledNam()).find((b) => b.instrument !== "bass");
