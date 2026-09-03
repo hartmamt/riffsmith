@@ -356,7 +356,7 @@ export function importAscii(text: string, title?: string): ImportResult | { erro
   let parsedArtist = "";
   for (const line of lines.slice(0, 4)) {
     if (isTabLine(line) || /^\s*\[/.test(line) || /tuning/i.test(line) || !line.trim()) continue;
-    const m = line.match(/^\s*(.+?)\s+[—–-]\s+(.+?)\s*$/);
+    const m = line.match(/^\s*(.+)\s+[—–-]\s+(.+?)\s*$/); // greedy title: the LAST " — " separates the artist, so dashes in titles survive
     if (m) {
       parsedTitle = m[1];
       parsedArtist = m[2];

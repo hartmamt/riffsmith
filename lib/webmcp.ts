@@ -981,11 +981,13 @@ function nextCommit(): Promise<void> {
 }
 
 async function appActions(): Promise<() => WebMcpActions> {
-  if (!actionsHolder) {
+  const fromWindow = () => (typeof window !== "undefined" ? (window as unknown as Record<string, unknown>).__riffsmithActions as (() => WebMcpActions) | undefined : undefined);
+  if (!actionsHolder && !fromWindow()) {
     await Promise.race([connected, new Promise((r) => setTimeout(r, 5000))]);
   }
-  if (!actionsHolder) throw new Error("RiffSmith is still loading — retry in a moment.");
-  return actionsHolder;
+  const holder = fromWindow() ?? actionsHolder; // the newest app instance wins
+  if (!holder) throw new Error("RiffSmith is still loading — retry in a moment.");
+  return holder;
 }
 
 // which surface a call arrived through (the console shim flips this for the
@@ -1067,6 +1069,9 @@ if (typeof window !== "undefined") {
 // Called by the app once its state is available; idempotent.
 export function registerWebMcp(get: () => WebMcpActions): string {
   actionsHolder = get;
+  // dev hot reload re-evaluates this module but the tools on window were
+  // registered by the previous instance: publish the holder on window too
+  if (typeof window !== "undefined") (window as unknown as Record<string, unknown>).__riffsmithActions = get;
   resolveConnected();
   return "webmcp: app state connected";
 }

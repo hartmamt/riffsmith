@@ -74,3 +74,15 @@ describe("bass lane round trip", () => {
     expect(res.song.measures[0].cols).toEqual(song.measures[0].cols);
   });
 });
+
+describe("title line", () => {
+  it("keeps an em dash inside the title and still finds the artist", () => {
+    const base = mixedSong();
+    const song = { ...base, title: "QA Trio — WebMCP 2026", artist: "Codex QA", measures: base.measures.slice(0, 1) };
+    const res = importAscii(toAscii(song));
+    expect("error" in res).toBe(false);
+    if ("error" in res) return;
+    expect(res.song.title).toBe("QA Trio — WebMCP 2026");
+    expect(res.song.artist).toBe("Codex QA");
+  });
+});

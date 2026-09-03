@@ -305,7 +305,7 @@ export default function TabEditor() {
     bassRigRef.current = bassRig;
     localStorage.setItem("gs.bassRig", bassRig);
     if (samplerRef.current) samplerRef.current.bassRig = bassRig;
-    if (bassSamplerRef.current) bassSamplerRef.current.bassRig = bassRig;
+    const bassSampler = bassSamplerRef.current; if (bassSampler) bassSampler.bassRig = bassRig;
     if (bassRig === "capture" && samplerRef.current) void ensureBassCapture(samplerRef.current);
     if (bassRig === "capture" && bassSamplerRef.current) void ensureBassCapture(bassSamplerRef.current);
   }, [bassRig, ensureBassCapture]);
@@ -469,7 +469,7 @@ export default function TabEditor() {
     };
     const timer = window.setTimeout(run, 250);
     pendingPersist.current = { timer, run };
-    return () => { window.clearTimeout(timer); if (pendingPersist.current?.timer === timer) pendingPersist.current = { timer, run }; };
+    return () => { window.clearTimeout(timer); if (pendingPersist.current?.timer === timer) pendingPersist.current = null; };
   }, [songs]);
 
   const song = useMemo(
@@ -584,9 +584,9 @@ export default function TabEditor() {
     const cur = songRef.current; if (cur) undoStack.current.push({ id: cur.id, song: cur });
     restoreSnapshot(snap); return true;
   }, [activeId, restoreSnapshot, flushPersist]);
-  const undoRef = useRef(undo); undoRef.current = undo;
-  const flushPersistRef = useRef(flushPersist); flushPersistRef.current = flushPersist;
-  const redoRef = useRef(redo); redoRef.current = redo;
+  const undoRef = useRef(undo); useEffect(() => { undoRef.current = undo; }, [undo]);
+  const flushPersistRef = useRef(flushPersist); useEffect(() => { flushPersistRef.current = flushPersist; }, [flushPersist]);
+  const redoRef = useRef(redo); useEffect(() => { redoRef.current = redo; }, [redo]);
 
   // the bars an edit applies to: the shift-selected range, else the current bar
   const targetRange = useCallback((): { from: number; to: number } => barSel ?? { from: sel.m, to: sel.m }, [barSel, sel.m]);
@@ -869,7 +869,7 @@ export default function TabEditor() {
       window.setTimeout(() => setExporting(null), 3000);
     }
   }, [ensureSampler, exporting]);
-  const exportMp3Ref = useRef(exportMp3); exportMp3Ref.current = exportMp3;
+  const exportMp3Ref = useRef(exportMp3); useEffect(() => { exportMp3Ref.current = exportMp3; }, [exportMp3]);
   // Guitar Pro / MusicXML / alphaTex file → a new song (guitar + bass + drums lanes when the file has them)
   const openGuitarPro = useCallback(async (file: File) => {
     try {
