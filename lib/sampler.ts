@@ -75,6 +75,7 @@ export class GuitarSampler {
   // the room the cab sits in: a short synthetic stereo IR (early reflections
   // + a 0.3 s diffuse tail) on a send after every amp. DI stays dry.
   private master: GainNode | null = null;
+  limiter: DynamicsCompressorNode | null = null; // the master limiter (exposed for metering/tests)
   private roomSend: GainNode | null = null;
   private roomAmount = 0.1;
   private namJson: string | null = null;
@@ -273,6 +274,7 @@ export class GuitarSampler {
       const lim = ctx.createDynamicsCompressor();
       lim.threshold.value = -4; lim.knee.value = 2; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.08;
       master.connect(lim).connect(ctx.destination);
+      this.limiter = lim;
     }
     const conv = ctx.createConvolver();
     conv.buffer = this.makeRoomIR();
